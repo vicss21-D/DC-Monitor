@@ -66,12 +66,12 @@ func (n *NodeSystemSensor) Tick() {
 
 	if n.TickCount % 1000 == 0 && n.State != StateCriticalLoad {
 	
-		chance := rand.Float64() 
+		chance := rand.Intn(100) 
 
-		if chance <= 0.01 {
+		if chance <= 1 {
 			
 			n.State = StateCriticalLoad
-		} else if chance <= 0.06 { 
+		} else if chance <= 6 { 
 			
 			n.State = StateHighLoad
 		} else {
@@ -84,20 +84,20 @@ func (n *NodeSystemSensor) Tick() {
 
 		case StateNormalLoad:
 			
-			n.InputThroughput = 0.5 + (rand.Float64()*0.2 - 0.1)
+			n.InputThroughput = 0.5 + (rand.Float64() * 0.2 - 0.1)
 		
-			n.InputInterrupts = 5000.0 + (rand.Float64()*1000 - 500)
+			n.InputInterrupts = 5000.0 + (rand.Float64() * 1000 - 500)
 
 		case StateHighLoad:
 			
-			n.InputThroughput = 8.5 + (rand.Float64()*1.0 - 0.5)
+			n.InputThroughput = 8.5 + (rand.Float64() * 1.0 - 0.5)
 			
-			n.InputInterrupts = 60000.0 + (rand.Float64()*5000 - 2500)
+			n.InputInterrupts = 60000.0 + (rand.Float64() * 5000 - 2500)
 
 		case StateCriticalLoad:
 			
-			n.InputThroughput = 0.1 + (rand.Float64()*0.05) 
-			n.InputInterrupts = 1200000.0 + (rand.Float64()*100000 - 50000)
+			n.InputThroughput = 0.1 + (rand.Float64() * 0.05) 
+			n.InputInterrupts = 1200000.0 + (rand.Float64() * 100000 - 50000)
 		}
 
 	if n.InputThroughput < 0 { 
