@@ -2,15 +2,14 @@ package node
 
 import (
 	"math/rand"
-	//"time"
-	//"pkg/protocol"
+	"dc-monitor/pkg/protocol"
 	//"fmt"
 )
 
 type NodeSystemSensor struct {
 	ID          		int
 
-	State				NodeState
+	State				protocol.NodeState
 	TickCount 			int
 
 	CurrentTemp 		float64
@@ -29,14 +28,6 @@ type NodeSystemSensor struct {
 	NetworkCap			float64
 	BaseLatency			float64
 }
-
-type NodeState int
-
-const (
-	StateNormalLoad NodeState = iota
-	StateHighLoad
-	StateCriticalLoad
-)
 
 func NewNode(id int) *NodeSystemSensor{
 	return &NodeSystemSensor{
@@ -64,37 +55,37 @@ func (n *NodeSystemSensor) Tick() {
 
 	n.TickCount++
 
-	if n.TickCount % 1000 == 0 && n.State != StateCriticalLoad {
+	if n.TickCount % 1000 == 0 && n.State != protocol.StateCriticalLoad {
 	
 		chance := rand.Intn(100) 
 
 		if chance <= 1 {
 			
-			n.State = StateCriticalLoad
+			n.State = protocol.StateCriticalLoad
 		} else if chance <= 6 { 
 			
-			n.State = StateHighLoad
+			n.State = protocol.StateHighLoad
 		} else {
 			
-			n.State = StateNormalLoad
+			n.State = protocol.StateNormalLoad
 		}
 	}
 
 	switch n.State {
 
-		case StateNormalLoad:
+		case protocol.StateNormalLoad:
 			
 			n.InputThroughput = 0.5 + (rand.Float64() * 0.2 - 0.1)
 		
 			n.InputInterrupts = 5000.0 + (rand.Float64() * 1000 - 500)
 
-		case StateHighLoad:
+		case protocol.StateHighLoad:
 			
 			n.InputThroughput = 8.5 + (rand.Float64() * 1.0 - 0.5)
 			
 			n.InputInterrupts = 60000.0 + (rand.Float64() * 5000 - 2500)
 
-		case StateCriticalLoad:
+		case protocol.StateCriticalLoad:
 			
 			n.InputThroughput = 0.1 + (rand.Float64() * 0.05) 
 			n.InputInterrupts = 1200000.0 + (rand.Float64() * 100000 - 50000)
