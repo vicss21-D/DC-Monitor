@@ -103,4 +103,37 @@ func (n *NodeSystemSensor) Tick() {
 	if n.InputThroughput < 0 { 
 		n.InputThroughput = 0.01 
 	}
+
+	weightThroughput := (n.InputThroughput / n.NetworkCap) * 60.0
+	weightInterrupts := (n.InputInterrupts / 1000000.0) * 100.0
+	
+	n.CurrentStress = weightThroughput + weightInterrupts
+	if n.CurrentStress > 100.0 {
+		n.CurrentStress = 100.0
+	}
+
+	availableCPUForData := 100.0 - weightInterrupts
+	if availableCPUForData < 0 { availableCPUForData = 0 }
+	
+	actualThroughput := n.InputThroughput * (availableCPUForData / 100.0)
+	if actualThroughput > n.NetworkCap { actualThroughput = n.NetworkCap }
+
+	utilizationFraction := n.CurrentStress / 100.0 
+	
+	if utilizationFraction >= 0.99 {
+		n.CurrentLatency = 5000.0 
+	} else {
+		n.CurrentLatency = n.BaseLatency / (1.0 - utilizationFraction)
+	}
+	n.CurrentLatency += rand.Float64() * 0.5
+
+	dynamicPower := (n.MaxPower - n.BasePower) * utilizationFraction
+	n.CurrentPower = n.BasePower + dynamicPower + (rand.Float64() * 5.0)
+
+	heatGenerated := n.CurrentPower * 0.0005 
+	
+	heatDissipated := n.HVACCoolingLevel * 0.002 * (n.CurrentTemp - n.AmbientTemp)
+	
+	tempVariation := (heatGenerated - heatDissipated) / n.ThermalMass
+	n.CurrentTemp += tempVariation
 }
