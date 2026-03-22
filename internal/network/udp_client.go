@@ -1,6 +1,8 @@
 package network
 
 import (
+	"dc-monitor/pkg/protocol"
+	"encoding/json"
 	"fmt"
 	"net"
 )
@@ -10,6 +12,7 @@ type TelemetryClient struct {
 }
 
 func NewTelemetryClient(serverAddr string) (*TelemetryClient, error) {
+
 	addr, err := net.ResolveUDPAddr("udp", serverAddr)
 
 	if err != nil {
@@ -25,4 +28,15 @@ func NewTelemetryClient(serverAddr string) (*TelemetryClient, error) {
 	return &TelemetryClient{
 		conn: conn,
 	}, nil
+}
+
+func Pack(packet protocol.TelemetryPacket) ([]byte, error) {
+
+	payload, err := json.Marshal(packet)
+
+	if err != nil {
+		return	nil, fmt.Errorf("Erro ao criar o socket: %w", err)
+	}
+
+	return payload, nil
 }
