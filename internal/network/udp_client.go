@@ -30,13 +30,19 @@ func NewTelemetryClient(serverAddr string) (*TelemetryClient, error) {
 	}, nil
 }
 
-func Pack(packet protocol.TelemetryPacket) ([]byte, error) {
+func Send(c *TelemetryClient, packet protocol.TelemetryPacket) error {
 
 	payload, err := json.Marshal(packet)
 
 	if err != nil {
-		return	nil, fmt.Errorf("Erro ao criar o socket: %w", err)
+		return fmt.Errorf("Erro ao criar o pacote: %w", err)
 	}
 
-	return payload, nil
+	_, err = c.conn.Write(payload)
+
+	if err != nil {
+		return fmt.Errorf("Erro ao enviar pacote UDP %w", err)
+	}
+
+	return nil
 }
