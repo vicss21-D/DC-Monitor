@@ -46,3 +46,9 @@ func Send(c *TelemetryClient, packet protocol.TelemetryPacket) error {
 
 	return nil
 }
+
+func (c *TelemetryClient) CloseClient() {
+	if c.conn != nil {
+		c.conn.Close()
+	}
+}
