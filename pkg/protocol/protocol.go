@@ -2,17 +2,17 @@ package protocol
 
 type TelemetryPacket struct {
 
-	ID					int
-	Timestamp			int64
+	ID					int 		`json:"node_id"`
+	Timestamp			int64		`json:"timestamp"`
 
-	CurrentState		NodeState
+	CurrentState		NodeState	`json:"current_state"`
 
-	Temperature 		float64
-	Stress				float64
-	Power				float64
-	Latency				float64
+	Temperature 		float64		`json:"temperature"`
+	Stress				float64		`json:"stress"`
+	Power				float64		`json:"power_draw"`
+	Latency				float64		`json:"latency"`
 
-	InputThroughput 	float64
-	InputInterrupts 	float64
-	HVACCoolingLevel 	float64
+	InputThroughput 	float64		`json:"throughput"`
+	InputInterrupts 	float64		`json:"interrupts"`
+	HVACCoolingLevel 	float64		`json:"cooling_level"`
 }
