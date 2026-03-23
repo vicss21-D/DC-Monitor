@@ -30,7 +30,7 @@ func NewTelemetryClient(serverAddr string) (*TelemetryClient, error) {
 	}, nil
 }
 
-func Send(c *TelemetryClient, packet protocol.TelemetryPacket) error {
+func (c *TelemetryClient) Send(packet protocol.TelemetryPacket) error {
 
 	payload, err := json.Marshal(packet)
 
