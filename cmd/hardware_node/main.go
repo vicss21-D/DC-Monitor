@@ -1,60 +1,59 @@
 package main
 
 import (
-	"fmt" // remove after client interface (maybe)
-	"sync"
+	"fmt"
 	"log"
+	"os"
+	"strconv"
 	"time"
 
 	"dc-monitor/internal/network"
-	"dc-monitor/pkg/protocol"
 	"dc-monitor/internal"
+	"dc-monitor/pkg/protocol"
 )
 
 func main() {
-
-	n := 10 
-	fmt.Printf("Iniciando... Sensores: %d\n", n)
-
-	client, err := network.NewTelemetryClient("127.0.0.1:9000") // might change address later, also consider use a DNS
+	
+	nodeIDStr := os.Getenv("NODE_ID")
+	nodeID, err := strconv.Atoi(nodeIDStr)
 	if err != nil {
-		log.Fatalf("Falha de rede: %v", err)
+		log.Fatalf("Erro: Variável de ambiente NODE_ID inválida ou não definida.")
+	}
+
+	serverAddr := os.Getenv("SERVER_ADDR")
+	if serverAddr == "" {
+		// Fallback
+		serverAddr = "127.0.0.1:9000" 
+	}
+
+	fmt.Printf("Iniciando (Nó %d). Alvo: %s\n", nodeID, serverAddr)
+
+	client, err := network.NewTelemetryClient(serverAddr)
+	if err != nil {
+		log.Fatalf("Falha crítica de rede no Nó %d: %v", nodeID, err)
 	}
 	defer client.CloseClient()
 
-	var wg sync.WaitGroup
+	node := node.NewNode(nodeID)
 
-	for i := 1; i <= n; i++ {
-		wg.Add(1)
+	ticker := time.NewTicker(1 * time.Millisecond)
+	defer ticker.Stop()
 
-		go func(nodeID int) {
-			defer wg.Done()
+	for range ticker.C {
+		node.Tick()
 
-			node := node.NewNode(nodeID)
-			
-			ticker := time.NewTicker(1 * time.Millisecond)
-			defer ticker.Stop()
+		packet := protocol.TelemetryPacket{
+			ID:           		node.ID,
+			Timestamp:        	time.Now().UnixMilli(),
+			CurrentState:     	node.State,
+			Stress:        		node.CurrentStress,
+			InputThroughput: 	node.InputThroughput,
+			InputInterrupts:    node.InputInterrupts,
+			Latency:          	node.CurrentLatency,
+			Power:        		node.CurrentPower,
+			Temperature:      	node.CurrentTemp,
+		}
 
-			for range ticker.C {
-
-				node.Tick()
-
-				packet := protocol.TelemetryPacket {
-					ID:       			node.ID,
-					Timestamp:        	time.Now().UnixMilli(),
-					CurrentState:     	node.State,
-					Stress:        		node.CurrentStress,
-					InputThroughput: 	node.InputThroughput,
-					InputInterrupts:    node.InputInterrupts,
-					Latency:          	node.CurrentLatency,
-					Power:        		node.CurrentPower,
-					Temperature:      	node.CurrentTemp,
-				}
-
-				client.Send(packet)
-			}
-		} (i)
+		client.Send(packet)
 	}
-	
-	wg.Wait()
 }
