@@ -127,4 +127,8 @@ func (n *NodeSystemSensor) Tick() {
 	
 	tempVariation := (heatGenerated - heatDissipated) / n.ThermalMass
 	n.CurrentTemp += tempVariation
+
+	if n.CurrentTemp > 105.0 {
+		n.CurrentTemp = 105.0 + (rand.Float64() * 0.5)
+	}
 }
