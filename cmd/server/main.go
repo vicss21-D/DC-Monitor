@@ -17,7 +17,7 @@ const (
 )
 
 func main() {
-	// 1. Configuração do Socket UDP
+
 	addr, err := net.ResolveUDPAddr("udp", Port)
 	if err != nil {
 		log.Fatalf("Erro ao resolver endereço: %v", err)
@@ -32,17 +32,12 @@ func main() {
 	fmt.Printf("Servidor Central Iniciado na porta %s\n", Port)
 	fmt.Printf("Iniciando pool com %d Workers...\n", WorkerCount)
 
-	// 2. A "Esteira Rolante" (Canal Bufferizado)
-	// Esse canal vai transportar as fatias de bytes cruas vindas da rede
 	packetQueue := make(chan []byte, BufferSize)
 
-	// O semáforo para garantir que os workers iniciem corretamente
 	var wg sync.WaitGroup
 
-	// 3. Contratando os Operários (Instanciando os Workers)
 	for i := 1; i <= WorkerCount; i++ {
 		wg.Add(1)
-		// Lançamos cada worker em sua própria Goroutine
 		go worker(i, packetQueue, &wg) 
 	}
 
@@ -86,7 +81,7 @@ func worker(id int, queue <-chan []byte, wg *sync.WaitGroup) {
 				id, packet.ID, packet.Temperature, packet.Stress)
 			
 		} else if packet.CurrentState == protocol.StateHighLoad {
-			//fmt.Printf("[AVISO] Nó %d em Estado de Alta Carga.\n", packet.NodeID)
+			//fmt.Printf("[AVISO] Nó %d em Estado de Alta Carga.\n", packet.ID)
 		}
 	}
 }
