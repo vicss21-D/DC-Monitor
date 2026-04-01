@@ -1,0 +1,91 @@
+version: '3.8'
+
+services:
+  # ==========================================
+  # SERVIDOR CENTRAL (Cérebro)
+  # ==========================================
+  server:
+    build:
+      context: .
+      dockerfile: docker/server.Dockerfile
+    container_name: dc_server
+    env_file:
+      - .env
+    ports:
+      - "8080:8080" # Painel Web
+      - "9000:9000/udp" # Porta UDP
+    volumes:
+      - ./client:/app/client
+    networks:
+      - dc_net
+
+  # ==========================================
+  # SENSORES DE HARDWARE (A Planta Física)
+  # ==========================================
+  sensor_1:
+    build: { context: ., dockerfile: docker/node.Dockerfile }
+    container_name: sensor_1
+    env_file: [ .env ]
+    environment: [ NODE_ID=1 ]
+    depends_on: [ server ]
+    networks: [ dc_net ]
+
+  sensor_2:
+    build: { context: ., dockerfile: docker/node.Dockerfile }
+    container_name: sensor_2
+    env_file: [ .env ]
+    environment: [ NODE_ID=2 ]
+    depends_on: [ server ]
+    networks: [ dc_net ]
+
+  sensor_3:
+    build: { context: ., dockerfile: docker/node.Dockerfile }
+    container_name: sensor_3
+    env_file: [ .env ]
+    environment: [ NODE_ID=3 ]
+    depends_on: [ server ]
+    networks: [ dc_net ]
+
+  sensor_4:
+    build: { context: ., dockerfile: docker/node.Dockerfile }
+    container_name: sensor_4
+    env_file: [ .env ]
+    environment: [ NODE_ID=4 ]
+    depends_on: [ server ]
+    networks: [ dc_net ]
+
+  sensor_5:
+    build: { context: ., dockerfile: docker/node.Dockerfile }
+    container_name: sensor_5
+    env_file: [ .env ]
+    environment: [ NODE_ID=5 ]
+    depends_on: [ server ]
+    networks: [ dc_net ]
+
+  sensor_6:
+    build: { context: ., dockerfile: docker/node.Dockerfile }
+    container_name: sensor_6
+    env_file: [ .env ]
+    environment: [ NODE_ID=6 ]
+    depends_on: [ server ]
+    networks: [ dc_net ]
+
+  sensor_7:
+    build: { context: ., dockerfile: docker/node.Dockerfile }
+    container_name: sensor_7
+    env_file: [ .env ]
+    environment: [ NODE_ID=7 ]
+    depends_on: [ server ]
+    networks: [ dc_net ]
+
+  sensor_8:
+    build: { context: ., dockerfile: docker/node.Dockerfile }
+    container_name: sensor_8
+    env_file: [ .env ]
+    environment: [ NODE_ID=8 ]
+    depends_on: [ server ]
+    networks: [ dc_net ]
+
+networks:
+  dc_net:
+    driver: bridge
