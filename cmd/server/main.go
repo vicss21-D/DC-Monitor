@@ -18,7 +18,7 @@ const (
 	HTTPPort    = ":8080"
 	WorkerCount = 16
 	BufferSize  = 10000
-	TicksPerSecond = 200
+	TicksPerSecond = 1000
 )
 
 var upgrader = websocket.Upgrader{
