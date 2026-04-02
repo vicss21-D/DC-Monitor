@@ -1,87 +1,169 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"log"
 	"net"
+	"net/http"
 	"sync"
 
 	"dc-monitor/pkg/protocol"
+	"github.com/gorilla/websocket"
 )
 
 const (
-	Port        = ":9000"
-	WorkerCount = 10    
-	BufferSize  = 10000 
+	UDPPort     = ":9000"
+	HTTPPort    = ":8080"
+	WorkerCount = 16
+	BufferSize  = 10000
 )
 
+var upgrader = websocket.Upgrader{
+	CheckOrigin: func(r *http.Request) bool { return true },
+}
+
+var clients = make(map[*websocket.Conn]bool)
+var broadcast = make(chan []byte)
+
 func main() {
-
-	addr, err := net.ResolveUDPAddr("udp", Port)
-	if err != nil {
-		log.Fatalf("Erro ao resolver endereço: %v", err)
-	}
-
+	
+	addr, _ := net.ResolveUDPAddr("udp", UDPPort)
 	conn, err := net.ListenUDP("udp", addr)
+
 	if err != nil {
-		log.Fatalf("Erro ao iniciar servidor UDP: %v", err)
+		log.Fatal(err)
 	}
 	defer conn.Close()
 
-	fmt.Printf("Servidor Central Iniciado na porta %s\n", Port)
-	fmt.Printf("Iniciando pool com %d Workers...\n", WorkerCount)
-
 	packetQueue := make(chan []byte, BufferSize)
-
 	var wg sync.WaitGroup
 
 	for i := 1; i <= WorkerCount; i++ {
 		wg.Add(1)
-		go worker(i, packetQueue, &wg) 
+		go worker(i, packetQueue, &wg)
 	}
 
-	networkBuffer := make([]byte, 2048)
+	// ==========================================
+	// 2. SETUP DAS ROTAS WEB
+	// ==========================================
 
-	fmt.Println("Aguardando telemetria dos nós...")
+	http.HandleFunc("/ws", handleConnections)
+	http.HandleFunc("/api/control", handleClientControl)
+	http.Handle("/", http.FileServer(http.Dir("./client")))
+
+	go func() {
+		fmt.Println("🌐 Servidor Web e Interface Gráfica na porta 8080...")
+		if err := http.ListenAndServe(HTTPPort, nil); err != nil {
+			log.Fatal("Erro fatal no servidor HTTP:", err)
+		}
+	}()
+
+	// Inicia a Goroutine que dispara os WebSockets
+	go handleMessages()
+
+	// ==========================================
+	// 3. O LOOP PRINCIPAL (UDP)
+	// ==========================================
+	networkBuffer := make([]byte, 2048)
+	fmt.Println("📡 Servidor Central escutando telemetria UDP na porta 9000...")
 
 	for {
-
 		n, _, err := conn.ReadFromUDP(networkBuffer)
 		if err != nil {
-			log.Printf("Erro de leitura UDP: %v", err)
 			continue
 		}
-
 		dataCopy := make([]byte, n)
 		copy(dataCopy, networkBuffer[:n])
-
 		packetQueue <- dataCopy
 	}
 }
 
+// ---------------------------------------------------------
+// FUNÇÕES AUXILIARES DE REDE E WEBSOCKET
+// ---------------------------------------------------------
+
+func handleConnections(w http.ResponseWriter, r *http.Request) {
+	ws, err := upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		return
+	}
+	defer ws.Close()
+	clients[ws] = true
+	for {
+		if _, _, err := ws.ReadMessage(); err != nil {
+			delete(clients, ws)
+			break
+		}
+	}
+}
+
+func handleMessages() {
+	for {
+		msg := <-broadcast
+		for client := range clients {
+			if err := client.WriteMessage(websocket.TextMessage, msg); err != nil {
+				client.Close()
+				delete(clients, client)
+			}
+		}
+	}
+}
+
+func handleClientControl(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Método não permitido", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var msg protocol.ControlMessage
+	if err := json.NewDecoder(r.Body).Decode(&msg); err != nil {
+		http.Error(w, "JSON inválido", http.StatusBadRequest)
+		return
+	}
+	
+	payload, _ := json.Marshal(msg)
+
+	var actuatorURL string
+	if msg.Type == "hvac" {
+		actuatorURL = "http://hvac_service:8081/trigger"
+	} else if msg.Type == "lb" {
+		actuatorURL = "http://lb_service:8082/trigger"
+	} else {
+		http.Error(w, "Atuador desconhecido", http.StatusBadRequest)
+		return
+	}
+
+	// 3. Comunica com o atuador
+	resp, err := http.Post(actuatorURL, "application/json", bytes.NewBuffer(payload))
+	if err != nil || resp.StatusCode != http.StatusOK {
+		fmt.Printf("❌ Servidor falhou ao contatar o Atuador %s\n", msg.Type)
+		http.Error(w, "Falha de comunicação com o atuador", http.StatusInternalServerError)
+		return
+	}
+	defer resp.Body.Close()
+
+	fmt.Printf("📡 Servidor roteou comando de %s para o Nó %d\n", msg.Type, msg.TargetNode)
+	w.WriteHeader(http.StatusOK)
+}
+
 func worker(id int, queue <-chan []byte, wg *sync.WaitGroup) {
-	defer wg.Done() 
+
+	defer wg.Done()
 
 	for rawData := range queue {
-		var packet protocol.TelemetryPacket
 
-		err := json.Unmarshal(rawData, &packet)
-		if err != nil {
-			log.Printf("Worker %d falhou ao decodificar JSON: %v", id, err)
+		var packet protocol.TelemetryPacket
+		if err := json.Unmarshal(rawData, &packet); err != nil {
 			continue
 		}
 
-		// ==========================================
-		// LB
-		// ==========================================
-		
-		if packet.CurrentState == protocol.StateCriticalLoad {
-			fmt.Printf("[ALERTA CRÍTICO - Tratado pelo Worker %d] Nó %d atingiu %.2f°C | Stress: %.2f%%\n",
-				id, packet.ID, packet.Temperature, packet.Stress)
-			
-		} else if packet.CurrentState == protocol.StateHighLoad {
-			//fmt.Printf("[AVISO] Nó %d em Estado de Alta Carga.\n", packet.ID)
-		}
+		// Envia os dados processados para o gráfico no navegador
+		broadcast <- rawData 
+
+		//if packet.CurrentState == protocol.StateCriticalLoad {
+		//	fmt.Printf("🔥 Nó %d superaqueceu!\n", packet.ID)
+		//}
 	}
 }

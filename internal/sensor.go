@@ -1,9 +1,10 @@
 package node
 
 import (
-	"math/rand"
 	"dc-monitor/pkg/protocol"
-	//"fmt"
+	"math/rand"
+	"sync/atomic"
+	"time"
 )
 
 type NodeSystemSensor struct {
@@ -27,6 +28,21 @@ type NodeSystemSensor struct {
 	AmbientTemp			float64
 	NetworkCap			float64
 	BaseLatency			float64
+
+	LBActive            atomic.Bool
+	HVACActive          atomic.Bool
+}
+
+func setHVAC(n* NodeSystemSensor) {
+	n.HVACActive.Store(true)
+	time.Sleep(2 * time.Second)
+	n.HVACActive.Store(false)
+}
+
+func setLB(n* NodeSystemSensor) {
+	n.LBActive.Store(true)
+	time.Sleep(2 * time.Second)
+	n.LBActive.Store(false)
 }
 
 func NewNode(id int) *NodeSystemSensor{

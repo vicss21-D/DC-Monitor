@@ -12,6 +12,12 @@ import (
 	"dc-monitor/pkg/protocol"
 )
 
+type ControlMessage struct {
+	Type       string `json:"type"`        // "hvac" ou "lb"
+	Signal     string `json:"signal"`      // "trigger_on" ou "trigger_off"
+	TargetNode int    `json:"target_node"` // ID do nó alvo
+}
+
 func main() {
 	
 	nodeIDStr := os.Getenv("NODE_ID")
@@ -24,6 +30,11 @@ func main() {
 	if serverAddr == "" {
 		// Fallback
 		serverAddr = "127.0.0.1:9000" 
+	}
+
+	controlPort := os.Getenv("CONTROL_PORT")
+	if controlPort == "" {
+		controlPort = "10000" // Padrão se não for informado
 	}
 
 	fmt.Printf("Iniciando (Nó %d). Alvo: %s\n", nodeID, serverAddr)
