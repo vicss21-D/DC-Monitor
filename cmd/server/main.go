@@ -18,6 +18,7 @@ const (
 	HTTPPort    = ":8080"
 	WorkerCount = 16
 	BufferSize  = 10000
+	TicksPerSecond = 200
 )
 
 var upgrader = websocket.Upgrader{
@@ -149,21 +150,24 @@ func handleClientControl(w http.ResponseWriter, r *http.Request) {
 }
 
 func worker(id int, queue <-chan []byte, wg *sync.WaitGroup) {
-
 	defer wg.Done()
-
+	
 	for rawData := range queue {
 
-		var packet protocol.TelemetryPacket
-		if err := json.Unmarshal(rawData, &packet); err != nil {
+		var header protocol.TelemetryPacket
+		
+		if err := json.Unmarshal(rawData, &header); err != nil {
 			continue
 		}
 
-		// Envia os dados processados para o gráfico no navegador
-		broadcast <- rawData 
+		// REGRA 1
+		isCritical := header.CurrentState == 2 
 
-		//if packet.CurrentState == protocol.StateCriticalLoad {
-		//	fmt.Printf("🔥 Nó %d superaqueceu!\n", packet.ID)
-		//}
+		// REGRA 2
+		isTickInterval := header.TickCount % TicksPerSecond == 0
+
+		if isCritical || isTickInterval {
+			broadcast <- rawData
+		}
 	}
 }

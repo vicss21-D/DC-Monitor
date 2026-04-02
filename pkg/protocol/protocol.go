@@ -5,6 +5,8 @@ type TelemetryPacket struct {
 	ID					int 		`json:"node_id"`
 	Timestamp			int64		`json:"timestamp"`
 
+	TickCount			int			`json:"tick"`
+
 	CurrentState		NodeState	`json:"current_state"`
 
 	Temperature 		float64		`json:"temperature"`

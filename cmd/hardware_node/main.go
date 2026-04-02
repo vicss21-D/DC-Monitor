@@ -56,6 +56,7 @@ func main() {
 		packet := protocol.TelemetryPacket{
 			ID:           		node.ID,
 			Timestamp:        	time.Now().UnixMilli(),
+			TickCount:        	node.TickCount,
 			CurrentState:     	node.State,
 			Stress:        		node.CurrentStress,
 			InputThroughput: 	node.InputThroughput,
