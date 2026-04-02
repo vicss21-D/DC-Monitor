@@ -1,0 +1,125 @@
+/* ==========================================
+   VARIÁVEIS GERAIS E RESET
+   ========================================== */
+:root {
+    --bg-color: #121212;
+    --panel-bg: #1e1e1e;
+    --text-main: #e0e0e0;
+    --text-muted: #9e9e9e;
+    --accent-blue: #0288d1;
+    --accent-green: #388e3c;
+    --accent-red: #d32f2f;
+    --accent-orange: #f57c00;
+}
+
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+body {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    background-color: var(--bg-color);
+    color: var(--text-main);
+    padding: 20px;
+}
+
+h1 {
+    text-align: center;
+    margin-bottom: 30px;
+    font-weight: 300;
+    letter-spacing: 1.5px;
+}
+
+/* ==========================================
+   GRID DO DASHBOARD
+   ========================================== */
+
+.grid-container {
+    display: grid;
+
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 20px;
+    max-width: 1400px;
+    margin: 0 auto;
+}
+
+/* ==========================================
+   CARD DO SENSOR (NODE)
+   ========================================== */
+.sensor-card {
+    background-color: var(--panel-bg);
+    border-radius: 10px;
+    padding: 20px;
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5);
+    border-top: 4px solid var(--text-muted);
+    transition: transform 0.2s ease;
+}
+
+.sensor-card:hover {
+    transform: translateY(-2px);
+}
+
+.sensor-card h3 {
+    margin-bottom: 15px;
+    font-size: 1.2rem;
+    border-bottom: 1px solid #333;
+    padding-bottom: 10px;
+}
+
+.sensor-card p {
+    margin-bottom: 8px;
+    font-size: 0.95rem;
+}
+
+/* Cores dinâmicas de Status */
+.status-normal { border-top-color: var(--accent-green); }
+.status-warning { border-top-color: var(--accent-orange); }
+.status-critical { 
+    border-top-color: var(--accent-red); 
+    animation: pulse 1.5s infinite;
+}
+
+@keyframes pulse {
+    0% { box-shadow: 0 0 0 0 rgba(211, 47, 47, 0.4); }
+    70% { box-shadow: 0 0 0 10px rgba(211, 47, 47, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(211, 47, 47, 0); }
+}
+
+/* ==========================================
+   BOTÕES DE CONTROLE
+   ========================================== */
+.controls {
+    margin-top: 15px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+button {
+    flex: 1 1 45%;
+    background-color: #333;
+    color: var(--text-main);
+    border: 1px solid #444;
+    padding: 8px 10px;
+    border-radius: 5px;
+    cursor: pointer;
+    font-size: 0.85rem;
+    transition: all 0.2s;
+}
+
+button:hover {
+    background-color: #444;
+    border-color: #666;
+}
+
+button:active {
+    transform: scale(0.98);
+}
+
+.btn-on { background-color: rgba(2, 136, 209, 0.2); border-color: var(--accent-blue); }
+.btn-on:hover { background-color: rgba(2, 136, 209, 0.4); }
+
+.btn-off { background-color: rgba(211, 47, 47, 0.2); border-color: var(--accent-red); }
+.btn-off:hover { background-color: rgba(211, 47, 47, 0.4); }
