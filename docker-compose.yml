@@ -2,7 +2,7 @@ version: '3.8'
 
 services:
   # ==========================================
-  # SERVIDOR CENTRAL (Cérebro)
+  # SERVIDOR CENTRAL
   # ==========================================
   server:
     build:
@@ -20,7 +20,7 @@ services:
       - dc_net
 
   # ==========================================
-  # SENSORES DE HARDWARE (A Planta Física)
+  # SENSORES DE HARDWARE
   # ==========================================
   sensor_1:
     build: { context: ., dockerfile: docker/node.Dockerfile }
@@ -83,6 +83,27 @@ services:
     container_name: sensor_8
     env_file: [ .env ]
     environment: [ NODE_ID=8 ]
+    depends_on: [ server ]
+    networks: [ dc_net ]
+
+  # ==========================================
+  # ATUADORES FÍSICOS
+  # ==========================================
+  hvac_service:
+    build:
+      context: .
+      dockerfile: docker/hvac.Dockerfile
+    container_name: hvac_actuator
+    env_file: [ .env ]
+    depends_on: [ server ]
+    networks: [ dc_net ]
+
+  lb_service:
+    build:
+      context: .
+      dockerfile: docker/lb.Dockerfile
+    container_name: lb_actuator
+    env_file: [ .env ]
     depends_on: [ server ]
     networks: [ dc_net ]
 
