@@ -60,7 +60,7 @@ func NewNode(id int) *NodeSystemSensor{
 
 		BasePower: 			150.0,
 		MaxPower:			650.0,
-		ThermalMass:		500.0,	
+		ThermalMass:		1000.0,	
 		AmbientTemp:		20.0,
 		MaxTemp:			105.0,	
 		NetworkCap:			9.0,
