@@ -89,6 +89,11 @@ func (n *NodeSystemSensor) Tick() {
 
 func (n *NodeSystemSensor) simulateStateAnomalies() {
 
+	if n.LBActive.Load() {
+		n.State = protocol.StateNormalLoad
+		return
+	}
+
 	if n.TickCount%1000 != 0 || n.State == protocol.StateCriticalLoad {
 		return
 	}

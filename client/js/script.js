@@ -35,7 +35,6 @@ function updateDashboard(packet) {
     const nodeId = `node-${packet.node_id}`;
     let card = document.getElementById(nodeId);
 
-    // Se o card não existe, cria a estrutura inteira UMA ÚNICA VEZ
     if (!card) {
         card = document.createElement('div');
         card.id = nodeId;
