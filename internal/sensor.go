@@ -20,12 +20,13 @@ type NodeSystemSensor struct {
 
 	InputThroughput 	float64
 	InputInterrupts 	float64
-	HVACCoolingLevel 	float64
+	HVACState 			atomic.Int64
 
 	BasePower 			float64
 	MaxPower			float64
 	ThermalMass			float64
 	AmbientTemp			float64
+	MaxTemp				float64
 	NetworkCap			float64
 	BaseLatency			float64
 
@@ -46,7 +47,7 @@ func setLB(n* NodeSystemSensor) {
 }
 
 func NewNode(id int) *NodeSystemSensor{
-	return &NodeSystemSensor{
+	node := &NodeSystemSensor{
 		ID: 				id,
 		
 		CurrentTemp: 		22.0,
@@ -55,16 +56,20 @@ func NewNode(id int) *NodeSystemSensor{
 		CurrentLatency:   	5.0,
 
 		InputThroughput: 	0.2,
-		InputInterrupts: 	5000.0,	
-		HVACCoolingLevel:	0.3,
+		InputInterrupts: 	5000.0,			
 
 		BasePower: 			150.0,
 		MaxPower:			650.0,
-		ThermalMass:		50.0,	
-		AmbientTemp:		20.0,	
+		ThermalMass:		500.0,	
+		AmbientTemp:		20.0,
+		MaxTemp:			105.0,	
 		NetworkCap:			9.0,
 		BaseLatency:		2.0,	
 	}
+
+	node.HVACState.Store(int64(protocol.StateBalanced))
+	
+	return node
 }
 
 // Tick orquestra o ciclo de vida do sensor a cada iteração
@@ -83,11 +88,13 @@ func (n *NodeSystemSensor) Tick() {
 // Injeta falhas e picos de carga baseados em probabilidade
 
 func (n *NodeSystemSensor) simulateStateAnomalies() {
+
 	if n.TickCount%1000 != 0 || n.State == protocol.StateCriticalLoad {
 		return
 	}
 
 	chance := rand.Intn(100)
+
 	if chance <= 1 {
 		n.State = protocol.StateCriticalLoad
 	} else if chance <= 6 {
@@ -100,7 +107,9 @@ func (n *NodeSystemSensor) simulateStateAnomalies() {
 // Simula o tráfego e as interrupções de hardware com base no estado atual
 
 func (n *NodeSystemSensor) generateNetworkTraffic() {
+
 	switch n.State {
+
 	case protocol.StateNormalLoad:
 		n.InputThroughput = 0.5 + (rand.Float64()*0.2 - 0.1)
 		n.InputInterrupts = 5000.0 + (rand.Float64()*1000 - 500)
@@ -158,13 +167,37 @@ func (n *NodeSystemSensor) computePowerConsumption() {
 }
 
 func (n *NodeSystemSensor) updateThermodynamics() {
-	heatGenerated := n.CurrentPower * 0.0005
-	heatDissipated := n.HVACCoolingLevel * 0.002 * (n.CurrentTemp - n.AmbientTemp)
+	
+	generationFactor := 0.01 
+	heatGenerated := n.CurrentPower * generationFactor
+
+	var coolingPower float64
+	
+	currentState := protocol.HVACState(n.HVACState.Load())
+
+	switch currentState {
+	case protocol.StateOff:
+		coolingPower = 0.01
+	case protocol.StateBalanced:
+		coolingPower = 0.10
+	case protocol.StateMaximum:
+		coolingPower = 0.30
+	default:
+		coolingPower = 0.10 // Fallback
+	}
+
+	heatDissipated := coolingPower * (n.CurrentTemp - n.AmbientTemp)
 
 	tempVariation := (heatGenerated - heatDissipated) / n.ThermalMass
 	n.CurrentTemp += tempVariation
 
+	sensorNoise := (rand.Float64() * 0.2) - 0.1
+	n.CurrentTemp += sensorNoise
+
+	if n.CurrentTemp < n.AmbientTemp {
+		n.CurrentTemp = n.AmbientTemp + (rand.Float64() * 0.5)
+	}
 	if n.CurrentTemp > 105.0 {
-		n.CurrentTemp = 105.0 + (rand.Float64() * 0.5)
+		n.CurrentTemp = 105.0 - (rand.Float64() * 0.5)
 	}
 }
