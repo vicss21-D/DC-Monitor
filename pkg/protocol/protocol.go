@@ -16,5 +16,7 @@ type TelemetryPacket struct {
 
 	InputThroughput 	float64		`json:"throughput"`
 	InputInterrupts 	float64		`json:"interrupts"`
-	HVACCoolingLevel 	float64		`json:"cooling_level"`
+
+	HVACState		 	int64		`json:"hvac_state"`
+	LBActive			bool		`json:"lb_active"`
 }

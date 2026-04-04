@@ -59,6 +59,8 @@ func main() {
 			Latency:          	node.CurrentLatency,
 			Power:        		node.CurrentPower,
 			Temperature:      	node.CurrentTemp,
+			HVACState: 			node.HVACState.Load(),
+			LBActive:			node.LBActive.Load(),
 		}
 
 		client.Send(packet)
@@ -98,20 +100,20 @@ func handleActuatorCommand(conn net.Conn, node *node.NodeSystemSensor) {
 	if msg.Type == "hvac" {
 		if msg.Requester == "auto" {
 			// Ação Automática: Resfriamento forçado temporário
-			fmt.Printf("[Nó %d] Watchdog ativou HVAC máximo por 2s.\n", node.ID)
+			fmt.Printf("[Nó %d]: HVAC máximo por 2s.\n", node.ID)
 			node.HVACState.Store(int64(protocol.StateMaximum))
 			time.Sleep(2 * time.Second)
 			node.HVACState.Store(int64(protocol.StateBalanced))
-			fmt.Printf("[Nó %d] HVAC normalizado pelo Watchdog.\n", node.ID)
+			fmt.Printf("[Nó %d]: HVAC normalizado.\n", node.ID)
 			
 		} else {
-			// Ação Manual: Fica no estado até o usuário mandar mudar
-			if msg.Signal == "trigger_on" {
+			// Novas rotas baseadas no controle segmentado
+			if msg.Signal == "set_max" {
 				node.HVACState.Store(int64(protocol.StateMaximum))
-				fmt.Printf("[Nó %d] Usuário ligou o HVAC.\n", node.ID)
-			} else if msg.Signal == "trigger_off" {
+			} else if msg.Signal == "set_balanced" {
 				node.HVACState.Store(int64(protocol.StateBalanced))
-				fmt.Printf("[Nó %d] Usuário desligou o HVAC.\n", node.ID)
+			} else if msg.Signal == "set_off" {
+				node.HVACState.Store(int64(protocol.StateOff))
 			}
 		}
 
