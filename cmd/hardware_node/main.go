@@ -14,12 +14,6 @@ import (
 	"dc-monitor/internal"
 )
 
-type ControlMessage struct {
-	Type       string `json:"type"`        // "hvac" ou "lb"
-	Signal     string `json:"signal"`      // "trigger_on" ou "trigger_off"
-	TargetNode int    `json:"target_node"` // ID do nó alvo
-}
-
 func main() {
 	
 	nodeIDStr := os.Getenv("NODE_ID")
@@ -74,12 +68,12 @@ func main() {
 func startActuatorListener(node *node.NodeSystemSensor, tcpPort string) {
 	listener, err := net.Listen("tcp", ":"+tcpPort)
 	if err != nil {
-		fmt.Printf("❌ Nó %d: Falha ao abrir porta TCP %s - %v\n", node.ID, tcpPort, err)
+		fmt.Printf("Nó %d: Falha ao abrir porta TCP %s - %v\n", node.ID, tcpPort, err)
 		return
 	}
 	defer listener.Close()
 
-	fmt.Printf("📡 Nó %d escutando comandos do Atuador na porta TCP %s\n", node.ID, tcpPort)
+	fmt.Printf("Nó %d escutando comandos do Atuador na porta TCP %s\n", node.ID, tcpPort)
 
 	for {
 		conn, err := listener.Accept()
@@ -102,25 +96,46 @@ func handleActuatorCommand(conn net.Conn, node *node.NodeSystemSensor) {
 
 	// 1. Roteamento do Comando HVAC
 	if msg.Type == "hvac" {
-		if msg.Signal == "trigger_on" {
-			// Liga a refrigeração máxima
+		if msg.Requester == "auto" {
+			// Ação Automática: Resfriamento forçado temporário
+			fmt.Printf("[Nó %d] Watchdog ativou HVAC máximo por 2s.\n", node.ID)
 			node.HVACState.Store(int64(protocol.StateMaximum))
-		
-		} else if msg.Signal == "trigger_off" {
-			// Retorna à refrigeração padrão
+			time.Sleep(2 * time.Second)
 			node.HVACState.Store(int64(protocol.StateBalanced))
-
+			fmt.Printf("[Nó %d] HVAC normalizado pelo Watchdog.\n", node.ID)
+			
+		} else {
+			// Ação Manual: Fica no estado até o usuário mandar mudar
+			if msg.Signal == "trigger_on" {
+				node.HVACState.Store(int64(protocol.StateMaximum))
+				fmt.Printf("[Nó %d] Usuário ligou o HVAC.\n", node.ID)
+			} else if msg.Signal == "trigger_off" {
+				node.HVACState.Store(int64(protocol.StateBalanced))
+				fmt.Printf("[Nó %d] Usuário desligou o HVAC.\n", node.ID)
+			}
 		}
-	
-	// 2. Roteamento do Comando Load Balancer
+
+	// ==========================================
+	// 2. ATUADOR LOAD BALANCER
+	// ==========================================
 	} else if msg.Type == "lb" {
-		if msg.Signal == "trigger_on" {
+		if msg.Requester == "auto" {
+			// Ação Automática: Drenagem temporária
+			fmt.Printf("[Nó %d] Drenado tráfego por 2s.\n", node.ID)
 			node.LBActive.Store(true)
 			time.Sleep(2 * time.Second)
 			node.LBActive.Store(false)
-
+			fmt.Printf("[Nó %d] Tráfego restaurado.\n", node.ID)
+			
 		} else {
-			node.LBActive.Store(false)
+			// Ação Manual: Drenagem manual com o seu limite nativo de 2s
+			if msg.Signal == "trigger_on" {
+				node.LBActive.Store(true)
+				time.Sleep(2 * time.Second)
+				node.LBActive.Store(false)
+			} else {
+				node.LBActive.Store(false)
+			}
 		}
 	}
 }

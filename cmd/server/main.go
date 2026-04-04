@@ -8,10 +8,14 @@ import (
 	"net"
 	"net/http"
 	"sync"
+	"time"
 
 	"dc-monitor/pkg/protocol"
 	"github.com/gorilla/websocket"
 )
+
+var serverTriggerMutex sync.Mutex
+var criticalStartTimes = make(map[int]time.Time)
 
 const (
 	UDPPort     = ":9000"
@@ -55,7 +59,7 @@ func main() {
 	http.Handle("/", http.FileServer(http.Dir("./client")))
 
 	go func() {
-		fmt.Println("🌐 Servidor Web e Interface Gráfica na porta 8080...")
+		fmt.Println("Servidor Web e Interface Gráfica na porta 8080...")
 		if err := http.ListenAndServe(HTTPPort, nil); err != nil {
 			log.Fatal("Erro fatal no servidor HTTP:", err)
 		}
@@ -68,7 +72,7 @@ func main() {
 	// 3. O LOOP PRINCIPAL (UDP)
 	// ==========================================
 	networkBuffer := make([]byte, 2048)
-	fmt.Println("📡 Servidor Central escutando telemetria UDP na porta 9000...")
+	fmt.Println("Servidor Central escutando telemetria UDP na porta 9000...")
 
 	for {
 		n, _, err := conn.ReadFromUDP(networkBuffer)
@@ -123,8 +127,8 @@ func handleClientControl(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "JSON inválido", http.StatusBadRequest)
 		return
 	}
-	
-	payload, _ := json.Marshal(msg)
+
+	msg.Requester = "user"
 
 	var actuatorURL string
 	if msg.Type == "hvac" {
@@ -136,16 +140,14 @@ func handleClientControl(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 3. Comunica com o atuador
-	resp, err := http.Post(actuatorURL, "application/json", bytes.NewBuffer(payload))
-	if err != nil || resp.StatusCode != http.StatusOK {
-		fmt.Printf("❌ Servidor falhou ao contatar o Atuador %s\n", msg.Type)
+	err := sendHTTPCommand(msg, actuatorURL)
+	if err != nil {
+		fmt.Printf("[ERRO MANUAL] Falha ao contatar Atuador %s: %v\n", msg.Type, err)
 		http.Error(w, "Falha de comunicação com o atuador", http.StatusInternalServerError)
 		return
 	}
-	defer resp.Body.Close()
 
-	fmt.Printf("📡 Servidor roteou comando de %s para o Nó %d\n", msg.Type, msg.TargetNode)
+	fmt.Printf("[MANUAL] Servidor roteou comando de %s para o Nó %d\n", msg.Type, msg.TargetNode)
 	w.WriteHeader(http.StatusOK)
 }
 
@@ -161,7 +163,27 @@ func worker(id int, queue <-chan []byte, wg *sync.WaitGroup) {
 		}
 
 		// REGRA 1
-		isCritical := header.CurrentState == 2 
+		isCritical := header.CurrentState == 2
+
+		serverTriggerMutex.Lock()
+		
+		if isCritical {
+			startTime, exists := criticalStartTimes[header.ID]
+			if !exists {
+
+				criticalStartTimes[header.ID] = time.Now()
+			} else if time.Since(startTime) >= 5*time.Second {
+
+				delete(criticalStartTimes, header.ID)
+				
+				// Dispara o gatilho automático em uma rotina separada
+				go autoHealNode(header.ID)
+			}
+		} else {
+			delete(criticalStartTimes, header.ID)
+		}
+		
+		serverTriggerMutex.Unlock()
 
 		// REGRA 2
 		isTickInterval := header.TickCount % TicksPerSecond == 0
@@ -170,4 +192,72 @@ func worker(id int, queue <-chan []byte, wg *sync.WaitGroup) {
 			broadcast <- rawData
 		}
 	}
+}
+
+func autoHealNode(nodeID int) {
+	fmt.Printf("Nó %d em estado crítico por >3s.\n", nodeID)
+
+	// Dispara o Load Balancer Automático
+	go func() {
+		payloadLB := protocol.ControlMessage{
+			Type:       	"lb",
+			Signal:     	"trigger_on",
+			TargetNode: 	nodeID,
+			Requester:     "auto",
+		}
+		
+		err := sendHTTPCommand(payloadLB, "http://lb_service:8082/trigger")
+		if err != nil {
+			fmt.Printf("Erro: Nó %d: %v\n", nodeID, err)
+		} else {
+			fmt.Printf("Comando entregue ao Nó %d\n", nodeID)
+		}
+	}()
+
+	// Dispara o HVAC Automático
+	go func() {
+		payloadHVAC := protocol.ControlMessage{
+			Type:       	"hvac",
+			Signal:     	"trigger_on",
+			TargetNode: 	nodeID,
+			Requester:     "auto",
+		}
+		
+		err := sendHTTPCommand(payloadHVAC, "http://hvac_service:8081/trigger")
+		if err != nil {
+			fmt.Printf("ERRO: Nó %d: %v\n", nodeID, err)
+		} else {
+			fmt.Printf("Comando entregue ao Nó %d\n", nodeID)
+		}
+	}()
+}
+
+func sendHTTPCommand(payload protocol.ControlMessage, targetURL string) error {
+	jsonData, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("erro ao serializar json: %v", err)
+	}
+
+	req, err := http.NewRequest(http.MethodPost, targetURL, bytes.NewBuffer(jsonData))
+	if err != nil {
+		return fmt.Errorf("erro ao criar requisicao http: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	// Timeout curto impede que uma falha de rede trave as goroutines do Servidor Central
+	client := &http.Client{
+		Timeout: 2 * time.Second,
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("falha na conexao com atuador: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusAccepted {
+		return fmt.Errorf("atuador retornou status: %d", resp.StatusCode)
+	}
+
+	return nil
 }
