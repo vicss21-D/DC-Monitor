@@ -116,6 +116,8 @@ func handleActuatorCommand(conn net.Conn, node *node.NodeSystemSensor) {
 	} else if msg.Type == "lb" {
 		if msg.Signal == "trigger_on" {
 			node.LBActive.Store(true)
+			time.Sleep(2 * time.Second)
+			node.LBActive.Store(false)
 
 		} else {
 			node.LBActive.Store(false)
