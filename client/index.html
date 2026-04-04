@@ -14,5 +14,33 @@
         </div>
 
     <script src="js/script.js" defer></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+    <div id="drawer-overlay" onclick="closeDetailsModal()"></div>
+    
+    <div id="details-drawer">
+        <div class="drawer-header">
+            <h2 id="drawer-title">Detalhes do Nó --</h2>
+            <button class="close-btn" onclick="closeDetailsModal()">&times;</button>
+        </div>
+        
+        <div class="drawer-body">
+            <div class="stats-grid">
+                <div class="stat-box">
+                    <span class="stat-label">Consumo Elétrico</span>
+                    <span class="stat-value" id="drawer-power">-- W</span>
+                </div>
+                <div class="stat-box">
+                    <span class="stat-label">Latência Real</span>
+                    <span class="stat-value" id="drawer-latency">-- ms</span>
+                </div>
+            </div>
+            
+            <div class="chart-container">
+                <canvas id="historyChart"></canvas>
+            </div>
+        </div>
+    </div>
+
 </body>
 </html>

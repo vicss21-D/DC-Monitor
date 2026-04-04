@@ -5,6 +5,50 @@ const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
 const wsURL = `${protocol}//${window.location.host}/ws`;
 const ws = new WebSocket(wsURL);
 
+// ==========================================
+// VARIÁVEIS DA GAVETA E GRÁFICO
+// ==========================================
+
+let activeDrawerNode = null; // Guarda o ID do nó que está com a gaveta aberta
+let historyChart = null;     // Instância do Chart.js
+const MAX_HISTORY = 10;      // Guarda apenas as últimas 10 atualizações (Janela deslizante)
+const nodeHistory = {};      // Dicionário de memória: { 1: { temp: [], stress: [], labels: [] } }
+
+// Inicializa a configuração vazia do Chart.js
+function initChart() {
+    const ctx = document.getElementById('historyChart').getContext('2d');
+    historyChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: [],
+            datasets: [
+                { label: 'Temperatura (°C)', borderColor: '#f44336', data: [], tension: 0.4 },
+                { label: 'CPU Stress (%)', borderColor: '#ff9800', data: [], tension: 0.4 }
+            ]
+        },
+        options: {
+            responsive: true,
+            animation: false, // Desliga a animação padrão para não piscar a cada atualização
+            scales: { y: { beginAtZero: true, max: 110 } }
+        }
+    });
+}
+
+// Abrir e Fechar a Gaveta
+function openDetailsModal(nodeId) {
+    activeDrawerNode = nodeId;
+    document.getElementById('drawer-title').innerText = `Detalhes do Nó ${nodeId}`;
+    document.body.classList.add('drawer-open');
+    
+    // Se ainda não iniciamos o gráfico, inicializa na primeira abertura
+    if (!historyChart) initChart();
+}
+
+function closeDetailsModal() {
+    activeDrawerNode = null;
+    document.body.classList.remove('drawer-open');
+}
+
 ws.onopen = function() {
     console.log("Conexão WebSocket estabelecida com o Gateway.");
 };
@@ -12,10 +56,42 @@ ws.onopen = function() {
 ws.onmessage = function(event) {
     try {
         const packet = JSON.parse(event.data);
-        //console.log("Pacote recebido:", packet);
+        
+        // 1. Atualiza o Card na tela principal
         updateDashboard(packet);
+        
+        // 2. Registra no Histórico da Memória (Janela Deslizante)
+        const id = packet.node_id;
+        if (!nodeHistory[id]) {
+            nodeHistory[id] = { temp: [], stress: [], labels: [] };
+        }
+        
+        // Adiciona os novos valores aos arrays
+        nodeHistory[id].labels.push(''); // Apenas para criar o eixo X
+        nodeHistory[id].temp.push(packet.temperature);
+        nodeHistory[id].stress.push(packet.stress);
+        
+        // Corta os dados antigos se passar do limite (O segredo contra memory leaks)
+        if (nodeHistory[id].temp.length > MAX_HISTORY) {
+            nodeHistory[id].labels.shift();
+            nodeHistory[id].temp.shift();
+            nodeHistory[id].stress.shift();
+        }
+        
+        // 3. Atualiza a Gaveta SOMENTE se estiver aberta para este nó específico
+        if (activeDrawerNode === id) {
+            document.getElementById('drawer-power').innerText = Number(packet.power_draw).toFixed(1) + " W";
+            document.getElementById('drawer-latency').innerText = Number(packet.latency).toFixed(1) + " ms";
+            
+            // Injeta os arrays de histórico no Chart.js e manda ele redesenhar
+            historyChart.data.labels = nodeHistory[id].labels;
+            historyChart.data.datasets[0].data = nodeHistory[id].temp;
+            historyChart.data.datasets[1].data = nodeHistory[id].stress;
+            historyChart.update();
+        }
+
     } catch (error) {
-        console.error("Erro ao fazer parse do pacote de telemetria:", error);
+        console.error("Erro no pacote:", error);
     }
 };
 
@@ -35,46 +111,99 @@ function updateDashboard(packet) {
     const nodeId = `node-${packet.node_id}`;
     let card = document.getElementById(nodeId);
 
+    // 1. Criação do Card (Apenas na primeira vez que o nó é visto)
     if (!card) {
         card = document.createElement('div');
         card.id = nodeId;
-        card.className = 'sensor-card';
+        // O onclick será usado no futuro para abrir o modal de detalhes
+        card.onclick = function(e) {
+            // Ignora o clique se o usuário clicou nos botões de controle
+            if(e.target.closest('.control-group')) return; 
+            openDetailsModal(packet.node_id); // Implementaremos a seguir!
+        };
         
         card.innerHTML = `
-            <h3>Nó de Hardware ${packet.node_id}</h3>
-            <p><strong>Status:</strong> <span id="status-${packet.node_id}"></span></p>
-            <p><strong>Temperatura:</strong> <span id="temp-${packet.node_id}"></span> °C</p>
-            <p><strong>Estresse da CPU:</strong> <span id="stress-${packet.node_id}"></span> %</p>
-            <p><strong>Potência:</strong> <span id="power-${packet.node_id}"></span> W</p>
-            <p><strong>Latência:</strong> <span id="latency-${packet.node_id}"></span> ms</p>
+            <div class="card-header">
+                <h3>Nó ${packet.node_id}</h3>
+                <span id="badge-${packet.node_id}" class="badge">NORMAL</span>
+            </div>
             
-            <div class="controls">
-                <button class="btn-on" onclick="sendControl('hvac', 'trigger_on', ${packet.node_id})">Ligar HVAC</button>
-                <button class="btn-off" onclick="sendControl('hvac', 'trigger_off', ${packet.node_id})">Desligar HVAC</button>
-                <button class="btn-on" onclick="sendControl('lb', 'trigger_on', ${packet.node_id})">Drenar Tráfego</button>
-                <button class="btn-off" onclick="sendControl('lb', 'trigger_off', ${packet.node_id})">Restaurar</button>
+            <div class="card-body">
+                <p><strong>Temp:</strong> <span id="temp-${packet.node_id}"></span> °C</p>
+                <p><strong>CPU:</strong> <span id="stress-${packet.node_id}"></span> %</p>
+                <p><strong>Latência:</strong> <span id="latency-${packet.node_id}"></span> ms</p>
+            </div>
+            
+            <div class="control-group">
+                <div class="switch-container">
+                    <span style="font-size: 0.9rem; color: #555;"><strong>Balanceador de Carga</strong></span>
+                    <label class="switch">
+                        <input type="checkbox" id="lb-switch-${packet.node_id}" onchange="toggleLB(${packet.node_id}, this.checked)">
+                        <span class="slider"></span>
+                    </label>
+                </div>
+                
+                <div class="hvac-label"><strong>Nível do HVAC</strong></div>
+                <div class="segmented-control">
+                    <button id="hvac-0-${packet.node_id}" onclick="setHVAC(${packet.node_id}, 'set_off')">OFF</button>
+                    <button id="hvac-1-${packet.node_id}" onclick="setHVAC(${packet.node_id}, 'set_balanced')">BAL</button>
+                    <button id="hvac-2-${packet.node_id}" onclick="setHVAC(${packet.node_id}, 'set_max')">MAX</button>
+                </div>
             </div>
         `;
         dashboard.appendChild(card);
     }
 
-    // Atualiza a cor do card baseado no status
-    let statusClass = 'status-normal';
-    if (packet.current_state === 1) { 
-        statusClass = 'status-warning';
-    } else if (packet.current_state === 2) {
-        statusClass = 'status-critical';
-    }
-    card.className = `sensor-card ${statusClass}`;
+    // 2. Atualização dos Dados Básicos
+    document.getElementById(`temp-${packet.node_id}`).innerText = Number(packet.temperature).toFixed(1);
+    document.getElementById(`stress-${packet.node_id}`).innerText = Number(packet.stress).toFixed(0);
+    document.getElementById(`latency-${packet.node_id}`).innerText = Number(packet.latency).toFixed(0);
 
-    // Atualiza APENAS o texto dos valores (os botões não são recriados)
-    document.getElementById(`status-${packet.node_id}`).innerText = packet.current_state;
-    document.getElementById(`temp-${packet.node_id}`).innerText = Number(packet.temperature).toFixed(2);
-    document.getElementById(`stress-${packet.node_id}`).innerText = Number(packet.stress).toFixed(2);
-    document.getElementById(`power-${packet.node_id}`).innerText = Number(packet.power_draw).toFixed(2);
-    document.getElementById(`latency-${packet.node_id}`).innerText = Number(packet.latency).toFixed(2);
+    // 3. Ordenação e Severidade (O CSS 'order' faz o Nó subir ou descer magicamente)
+    const badge = document.getElementById(`badge-${packet.node_id}`);
+    if (packet.current_state === 2) {
+        card.className = 'sensor-card critical';
+        badge.innerText = 'CRÍTICO';
+    } else if (packet.current_state === 1) {
+        card.className = 'sensor-card warning';
+        badge.innerText = 'ALTO';
+    } else {
+        card.className = 'sensor-card normal';
+        badge.innerText = 'NORMAL';
+    }
+
+    // 4. Sincronização Absoluta dos Atuadores (A Fonte da Verdade)
+    // Atualiza o Switch do LB (Se true, ativa o laranja indicando que está drenado)
+    const lbSwitch = document.getElementById(`lb-switch-${packet.node_id}`);
+    if (lbSwitch.checked !== packet.lb_active) {
+        lbSwitch.checked = packet.lb_active;
+    }
+
+    // Atualiza o Controle Segmentado do HVAC (Limpa as cores e colore apenas o ativo)
+    document.getElementById(`hvac-0-${packet.node_id}`).className = '';
+    document.getElementById(`hvac-1-${packet.node_id}`).className = '';
+    document.getElementById(`hvac-2-${packet.node_id}`).className = '';
+    
+    if (packet.hvac_state === 0) {
+        document.getElementById(`hvac-0-${packet.node_id}`).className = 'active-off';
+    } else if (packet.hvac_state === 1) {
+        document.getElementById(`hvac-1-${packet.node_id}`).className = 'active-bal';
+    } else if (packet.hvac_state === 2) {
+        document.getElementById(`hvac-2-${packet.node_id}`).className = 'active-max';
+    }
 }
 
+// ==========================================
+// DISPARADORES DE EVENTO
+// ==========================================
+function toggleLB(nodeId, isChecked) {
+    const signal = isChecked ? 'trigger_on' : 'trigger_off';
+    sendControl('lb', signal, nodeId);
+}
+
+function setHVAC(nodeId, levelSignal) {
+    sendControl('hvac', levelSignal, nodeId);
+}
 // ==========================================
 // 3. COMANDOS DE ATUAÇÃO FÍSICA (HTTP)
 // ==========================================
