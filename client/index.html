@@ -6,15 +6,28 @@
     <title>Monitoramento do Data Center</title>
     
     <link rel="stylesheet" href="css/style.css">
+
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="js/script.js" defer></script>
 </head>
 <body>
-    <h1>Painel de Controle - Data Center</h1>
     
-    <div id="dashboard" class="grid-container">
+    <header class="main-header">
+        <h1>Datacenter Monitor</h1>
+        <p>Telemetria</p>
+    </header>
+
+    <main class="dashboard-wrapper">
+        <div class="zone-container critical-zone" id="zone-critical-wrapper" style="display: none;">
+            <h2 class="zone-title">Atenção Requerida</h2>
+            <div id="dashboard-critical" class="dashboard-grid"></div>
         </div>
 
-    <script src="js/script.js" defer></script>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+        <div class="zone-container normal-zone">
+            <h2 class="zone-title">Operação Normal</h2>
+            <div id="dashboard-normal" class="dashboard-grid"></div>
+        </div>
+    </main>
 
     <div id="drawer-overlay" onclick="closeDetailsModal()"></div>
     

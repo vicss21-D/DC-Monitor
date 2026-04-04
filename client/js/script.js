@@ -107,7 +107,11 @@ ws.onclose = function() {
 // 2. ATUALIZAÇÃO DA INTERFACE (DOM)
 // ==========================================
 function updateDashboard(packet) {
-    const dashboard = document.getElementById('dashboard');
+    // Referências das zonas criadas no novo HTML
+    const normalZone = document.getElementById('dashboard-normal');
+    const criticalZone = document.getElementById('dashboard-critical');
+    const criticalWrapper = document.getElementById('zone-critical-wrapper');
+    
     const nodeId = `node-${packet.node_id}`;
     let card = document.getElementById(nodeId);
 
@@ -115,11 +119,11 @@ function updateDashboard(packet) {
     if (!card) {
         card = document.createElement('div');
         card.id = nodeId;
-        // O onclick será usado no futuro para abrir o modal de detalhes
+        // O onclick abre o modal de detalhes
         card.onclick = function(e) {
             // Ignora o clique se o usuário clicou nos botões de controle
             if(e.target.closest('.control-group')) return; 
-            openDetailsModal(packet.node_id); // Implementaremos a seguir!
+            openDetailsModal(packet.node_id);
         };
         
         card.innerHTML = `
@@ -151,7 +155,10 @@ function updateDashboard(packet) {
                 </div>
             </div>
         `;
-        dashboard.appendChild(card);
+        
+        // CORREÇÃO: Anexa o card provisoriamente na zona normal para que
+        // os 'document.getElementById' da Etapa 2 consigam encontrá-lo.
+        normalZone.appendChild(card);
     }
 
     // 2. Atualização dos Dados Básicos
@@ -159,21 +166,43 @@ function updateDashboard(packet) {
     document.getElementById(`stress-${packet.node_id}`).innerText = Number(packet.stress).toFixed(0);
     document.getElementById(`latency-${packet.node_id}`).innerText = Number(packet.latency).toFixed(0);
 
-    // 3. Ordenação e Severidade (O CSS 'order' faz o Nó subir ou descer magicamente)
+    // 3. Ordenação Dinâmica por Zonas (Movimentação FÍSICA do DOM)
     const badge = document.getElementById(`badge-${packet.node_id}`);
-    if (packet.current_state === 2) {
-        card.className = 'sensor-card critical';
-        badge.innerText = 'CRÍTICO';
-    } else if (packet.current_state === 1) {
-        card.className = 'sensor-card warning';
-        badge.innerText = 'ALTO';
+    
+    // Se for Crítico (2) ou Alto (1), vai para a zona superior de alerta
+    if (packet.current_state === 2 || packet.current_state === 1) {
+        if (packet.current_state === 2) {
+            card.className = 'sensor-card critical';
+            badge.innerText = 'CRÍTICO';
+        } else {
+            card.className = 'sensor-card warning';
+            badge.innerText = 'ALTO';
+        }
+        
+        // Move o card para a zona crítica se ele já não estiver lá
+        if (card.parentElement !== criticalZone) {
+            criticalZone.appendChild(card);
+        }
     } else {
+        // Se for Normal (0), vai para a zona de baixo
         card.className = 'sensor-card normal';
         badge.innerText = 'NORMAL';
+        
+        // Move o card para a zona normal se ele já não estiver lá
+        if (card.parentElement !== normalZone) {
+            normalZone.appendChild(card);
+        }
+    }
+
+    // Oculta a Zona Crítica inteira (título e borda) se não houver nenhum nó em pane
+    if (criticalZone.children.length > 0) {
+        criticalWrapper.style.display = 'block';
+    } else {
+        criticalWrapper.style.display = 'none';
     }
 
     // 4. Sincronização Absoluta dos Atuadores (A Fonte da Verdade)
-    // Atualiza o Switch do LB (Se true, ativa o laranja indicando que está drenado)
+    // Atualiza o Switch do LB (Se true, ativa o slider indicando drenagem)
     const lbSwitch = document.getElementById(`lb-switch-${packet.node_id}`);
     if (lbSwitch.checked !== packet.lb_active) {
         lbSwitch.checked = packet.lb_active;
