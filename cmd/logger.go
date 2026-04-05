@@ -1,4 +1,4 @@
-package main
+package logs
 
 import (
 	"fmt"
@@ -7,7 +7,7 @@ import (
 	"dc-monitor/pkg/protocol"
 )
 
-func csvLoggerWorker(logChan <-chan protocol.TelemetryPacket) {
+func csvLoggerWorker(logChannel <-chan protocol.TelemetryPacket) {
 
 	file, err := os.OpenFile("logs.csv", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
@@ -21,7 +21,7 @@ func csvLoggerWorker(logChan <-chan protocol.TelemetryPacket) {
 		file.WriteString("node_id,current_state,temperature,stress,power_draw,latency,tick_count,hvac_state,lb_active\n")
 	}
 
-	for packet := range logChan {
+	for packet := range logChannel {
 
 		csvLine := fmt.Sprintf("%d,%d,%.2f,%.2f,%.2f,%.2f,%d,%d,%t\n",
 			packet.ID,

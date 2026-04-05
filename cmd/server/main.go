@@ -12,6 +12,7 @@ import (
 
 	"dc-monitor/pkg/protocol"
 	"github.com/gorilla/websocket"
+	"dc-monitor/cmd/logs"
 )
 
 var serverTriggerMutex sync.Mutex
@@ -42,12 +43,15 @@ func main() {
 	}
 	defer conn.Close()
 
+	logChannel := make(chan protocol.TelemetryPacket, 10000)
+	go logs.CSVLoggerWorker(logChannel)
+
 	packetQueue := make(chan []byte, BufferSize)
 	var wg sync.WaitGroup
 
 	for i := 1; i <= WorkerCount; i++ {
 		wg.Add(1)
-		go worker(i, packetQueue, &wg)
+		go worker(i, packetQueue, &wg, logChannel)
 	}
 
 	// ==========================================
@@ -151,7 +155,7 @@ func handleClientControl(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
-func worker(id int, queue <-chan []byte, wg *sync.WaitGroup) {
+func worker(id int, queue <-chan []byte, wg *sync.WaitGroup, logChannel chan<- protocol.TelemetryPacket) {
 	defer wg.Done()
 	
 	for rawData := range queue {
@@ -190,6 +194,13 @@ func worker(id int, queue <-chan []byte, wg *sync.WaitGroup) {
 
 		if isCritical || isTickInterval {
 			broadcast <- rawData
+		}
+
+		select {
+		case logChannel <- header:
+			
+		default:
+			fmt.Printf("[AVISO] Canal de log cheio, descartando pacote do Nó %d\n", header.ID)
 		}
 	}
 }
