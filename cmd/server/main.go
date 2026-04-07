@@ -10,9 +10,9 @@ import (
 	"sync"
 	"time"
 
+	"dc-monitor/cmd/logs"
 	"dc-monitor/pkg/protocol"
 	"github.com/gorilla/websocket"
-	"dc-monitor/cmd/logs"
 )
 
 var serverTriggerMutex sync.Mutex

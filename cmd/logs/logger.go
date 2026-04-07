@@ -7,7 +7,7 @@ import (
 	"dc-monitor/pkg/protocol"
 )
 
-func csvLoggerWorker(logChannel <-chan protocol.TelemetryPacket) {
+func CSVLoggerWorker(logChannel <-chan protocol.TelemetryPacket) {
 
 	file, err := os.OpenFile("logs.csv", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
