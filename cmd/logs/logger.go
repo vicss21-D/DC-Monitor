@@ -18,13 +18,14 @@ func CSVLoggerWorker(logChannel <-chan protocol.TelemetryPacket) {
 
 	stat, _ := file.Stat()
 	if stat.Size() == 0 {
-		file.WriteString("node_id,current_state,temperature,stress,power_draw,latency,tick_count,hvac_state,lb_active\n")
+		file.WriteString("node_id,timestamp,current_state,temperature,stress,power_draw,latency,tick_count,hvac_state,lb_active\n")
 	}
 
 	for packet := range logChannel {
 
-		csvLine := fmt.Sprintf("%d,%d,%.2f,%.2f,%.2f,%.2f,%d,%d,%t\n",
+		csvLine := fmt.Sprintf("%d,%d,%d,%.2f,%.2f,%.2f,%.2f,%d,%d,%t\n",
 			packet.ID,
+			packet.Timestamp,
 			packet.CurrentState,
 			packet.Temperature,
 			packet.Stress,

@@ -59,7 +59,7 @@ ws.onmessage = function(event) {
         
         // 1. Atualiza o Card na tela principal
         updateDashboard(packet);
-        
+        console.log(packet)
         // 2. Registra no Histórico da Memória (Janela Deslizante)
         const id = packet.node_id;
         if (!nodeHistory[id]) {

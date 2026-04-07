@@ -1,21 +1,21 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
+	"net"
 	"os"
 	"strconv"
 	"time"
-	"net"
-	"encoding/json"
 
+	node "dc-monitor/internal"
 	"dc-monitor/internal/network"
 	"dc-monitor/pkg/protocol"
-	"dc-monitor/internal"
 )
 
 func main() {
-	
+
 	nodeIDStr := os.Getenv("NODE_ID")
 	nodeID, err := strconv.Atoi(nodeIDStr)
 	if err != nil {
@@ -25,7 +25,7 @@ func main() {
 	serverAddr := os.Getenv("SERVER_ADDR")
 	if serverAddr == "" {
 		// Fallback
-		serverAddr = "127.0.0.1:9000" 
+		serverAddr = "dc_server:9000"
 	}
 
 	fmt.Printf("Iniciando (Nó %d). Alvo: %s\n", nodeID, serverAddr)
@@ -49,18 +49,18 @@ func main() {
 		node.Tick()
 
 		packet := protocol.TelemetryPacket{
-			ID:           		node.ID,
-			Timestamp:        	time.Now().UnixMilli(),
-			TickCount:        	node.TickCount,
-			CurrentState:     	node.State,
-			Stress:        		node.CurrentStress,
-			InputThroughput: 	node.InputThroughput,
-			InputInterrupts:    node.InputInterrupts,
-			Latency:          	node.CurrentLatency,
-			Power:        		node.CurrentPower,
-			Temperature:      	node.CurrentTemp,
-			HVACState: 			node.HVACState.Load(),
-			LBActive:			node.LBActive.Load(),
+			ID:              node.ID,
+			Timestamp:       time.Now().UnixMilli(),
+			TickCount:       node.TickCount,
+			CurrentState:    node.State,
+			Stress:          node.CurrentStress,
+			InputThroughput: node.InputThroughput,
+			InputInterrupts: node.InputInterrupts,
+			Latency:         node.CurrentLatency,
+			Power:           node.CurrentPower,
+			Temperature:     node.CurrentTemp,
+			HVACState:       node.HVACState.Load(),
+			LBActive:        node.LBActive.Load(),
 		}
 
 		client.Send(packet)
@@ -105,7 +105,7 @@ func handleActuatorCommand(conn net.Conn, node *node.NodeSystemSensor) {
 			time.Sleep(2 * time.Second)
 			node.HVACState.Store(int64(protocol.StateBalanced))
 			fmt.Printf("[Nó %d]: HVAC normalizado.\n", node.ID)
-			
+
 		} else {
 			// Novas rotas baseadas no controle segmentado
 			if msg.Signal == "set_max" {
@@ -117,9 +117,9 @@ func handleActuatorCommand(conn net.Conn, node *node.NodeSystemSensor) {
 			}
 		}
 
-	// ==========================================
-	// 2. ATUADOR LOAD BALANCER
-	// ==========================================
+		// ==========================================
+		// 2. ATUADOR LOAD BALANCER
+		// ==========================================
 	} else if msg.Type == "lb" {
 		if msg.Requester == "auto" {
 			// Ação Automática: Drenagem temporária
@@ -128,7 +128,7 @@ func handleActuatorCommand(conn net.Conn, node *node.NodeSystemSensor) {
 			time.Sleep(2 * time.Second)
 			node.LBActive.Store(false)
 			fmt.Printf("[Nó %d] Tráfego restaurado.\n", node.ID)
-			
+
 		} else {
 			// Ação Manual: Drenagem manual com o seu limite nativo de 2s
 			if msg.Signal == "trigger_on" {
