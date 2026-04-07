@@ -14,6 +14,8 @@ services:
     ports:
       - "8080:8080" # Painel Web
       - "9000:9000/udp" # Porta UDP
+      - "8081:8081" # HVAC
+      - "8082:8082" # LB
     volumes:
       - ./client:/app/client
     networks:
