@@ -12,10 +12,7 @@ services:
     env_file:
       - .env
     ports:
-      - "8080:8080" # Painel Web
       - "9000:9000/udp" # Porta UDP
-      - "8081:8081" # HVAC
-      - "8082:8082" # LB
     volumes:
       - ./client:/app/client
     networks:
@@ -106,6 +103,15 @@ services:
       dockerfile: docker/lb.Dockerfile
     container_name: lb_actuator
     env_file: [ .env ]
+    depends_on: [ server ]
+    networks: [ dc_net ]
+
+  web_client:
+    build:
+      context: .
+      dockerfile: docker/client.Dockerfile
+    ports:
+      - "80:80"
     depends_on: [ server ]
     networks: [ dc_net ]
 

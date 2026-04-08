@@ -12,6 +12,7 @@ import (
 
 	"dc-monitor/cmd/logs"
 	"dc-monitor/pkg/protocol"
+
 	"github.com/gorilla/websocket"
 )
 
@@ -19,10 +20,10 @@ var serverTriggerMutex sync.Mutex
 var criticalStartTimes = make(map[int]time.Time)
 
 const (
-	UDPPort     = ":9000"
-	HTTPPort    = ":8080"
-	WorkerCount = 16
-	BufferSize  = 10000
+	UDPPort        = ":9000"
+	HTTPPort       = ":8080"
+	WorkerCount    = 16
+	BufferSize     = 10000
 	TicksPerSecond = 1000
 )
 
@@ -34,7 +35,7 @@ var clients = make(map[*websocket.Conn]bool)
 var broadcast = make(chan []byte)
 
 func main() {
-	
+
 	addr, _ := net.ResolveUDPAddr("udp", UDPPort)
 	conn, err := net.ListenUDP("udp", addr)
 
@@ -60,7 +61,7 @@ func main() {
 
 	http.HandleFunc("/ws", handleConnections)
 	http.HandleFunc("/api/control", handleClientControl)
-	http.Handle("/", http.FileServer(http.Dir("./client")))
+	//http.Handle("/", http.FileServer(http.Dir("./client")))
 
 	go func() {
 		fmt.Println("Servidor Web e Interface Gráfica na porta 8080...")
@@ -157,11 +158,11 @@ func handleClientControl(w http.ResponseWriter, r *http.Request) {
 
 func worker(id int, queue <-chan []byte, wg *sync.WaitGroup, logChannel chan<- protocol.TelemetryPacket) {
 	defer wg.Done()
-	
+
 	for rawData := range queue {
 
 		var header protocol.TelemetryPacket
-		
+
 		if err := json.Unmarshal(rawData, &header); err != nil {
 			continue
 		}
@@ -170,7 +171,7 @@ func worker(id int, queue <-chan []byte, wg *sync.WaitGroup, logChannel chan<- p
 		isCritical := header.CurrentState == 2
 
 		serverTriggerMutex.Lock()
-		
+
 		if isCritical {
 			startTime, exists := criticalStartTimes[header.ID]
 			if !exists {
@@ -179,18 +180,18 @@ func worker(id int, queue <-chan []byte, wg *sync.WaitGroup, logChannel chan<- p
 			} else if time.Since(startTime) >= 5*time.Second {
 
 				delete(criticalStartTimes, header.ID)
-				
+
 				// Dispara o gatilho automático em uma rotina separada
 				go autoHealNode(header.ID)
 			}
 		} else {
 			delete(criticalStartTimes, header.ID)
 		}
-		
+
 		serverTriggerMutex.Unlock()
 
 		// REGRA 2
-		isTickInterval := header.TickCount % TicksPerSecond == 0
+		isTickInterval := header.TickCount%TicksPerSecond == 0
 
 		if isCritical || isTickInterval {
 			broadcast <- rawData
@@ -198,7 +199,7 @@ func worker(id int, queue <-chan []byte, wg *sync.WaitGroup, logChannel chan<- p
 
 		select {
 		case logChannel <- header:
-			
+
 		default:
 			fmt.Printf("[AVISO] Canal de log cheio, descartando pacote do Nó %d\n", header.ID)
 		}
@@ -211,12 +212,12 @@ func autoHealNode(nodeID int) {
 	// Dispara o Load Balancer Automático
 	go func() {
 		payloadLB := protocol.ControlMessage{
-			Type:       	"lb",
-			Signal:     	"trigger_on",
-			TargetNode: 	nodeID,
-			Requester:     "auto",
+			Type:       "lb",
+			Signal:     "trigger_on",
+			TargetNode: nodeID,
+			Requester:  "auto",
 		}
-		
+
 		err := sendHTTPCommand(payloadLB, "http://lb_service:8082/trigger")
 		if err != nil {
 			fmt.Printf("Erro: Nó %d: %v\n", nodeID, err)
@@ -228,12 +229,12 @@ func autoHealNode(nodeID int) {
 	// Dispara o HVAC Automático
 	go func() {
 		payloadHVAC := protocol.ControlMessage{
-			Type:       	"hvac",
-			Signal:     	"trigger_on",
-			TargetNode: 	nodeID,
-			Requester:     "auto",
+			Type:       "hvac",
+			Signal:     "trigger_on",
+			TargetNode: nodeID,
+			Requester:  "auto",
 		}
-		
+
 		err := sendHTTPCommand(payloadHVAC, "http://hvac_service:8081/trigger")
 		if err != nil {
 			fmt.Printf("ERRO: Nó %d: %v\n", nodeID, err)
