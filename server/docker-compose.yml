@@ -1,0 +1,13 @@
+version: '3.8'
+
+services:
+  server:
+    build:
+      context: .
+      dockerfile: docker/server.Dockerfile
+    container_name: dc_server
+    env_file:
+      - .env
+    ports:
+      - "8080:8080"
+      - "9000:9000/udp" 
