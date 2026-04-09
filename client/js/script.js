@@ -1,29 +1,44 @@
 // ==========================================
 // VARIÁVEIS GLOBAIS
 // ==========================================
-let ws; // Declarado aqui em cima para o Auto-Heal funcionar
+// Variável global para armazenar a conexão WebSocket (necessário no escopo global para auto-reconexão)
+let ws;
+// Mapa para gerenciar timeouts de alertas (evita múltiplos piscares simultâneos)
 const alertTimeouts = {};
-let activeDrawerNode = null; 
-let historyChart = null;     
-const MAX_HISTORY = 10;      
+// ID do nó cuja gaveta de detalhes está aberta (null se nenhuma aberta)
+let activeDrawerNode = null;
+// Instância do gráfico Chart.js para histórico de temperatura e stress
+let historyChart = null;
+// Número máximo de pontos mantidos no histórico (evita consumo de memória)
+const MAX_HISTORY = 10;
+// Cache em memória do histórico de cada nó {temp: [], stress: [], labels: []}
 const nodeHistory = {};      
 
 // ==========================================
 // 1. INICIALIZAÇÃO DO WEBSOCKET (Com Auto-Heal)
 // ==========================================
+// Conecta-se ao servidor via WebSocket usando protocolo seguro (wss) ou inseguro (ws)
+// Implementa reconexão automática com intervalo de 3 segundos
 function connectWebSocket() {
+    // Define protocolo com base no contexto (HTTPS usa WSS, HTTP usa WS)
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    // Monta URL do WebSocket no mesmo host do servidor
     const wsURL = `${protocol}//${window.location.host}/ws`;
     
+    // Log de diagnóstico
     console.log("Tentando conectar ao Servidor Central...");
+    // Cria instância WebSocket
     ws = new WebSocket(wsURL);
 
+    // Event handler: Ativado quando a conexão é estabelecida com sucesso
     ws.onopen = function() {
         console.log("✅ Conexão WebSocket estabelecida com o Gateway.");
     };
 
+    // Event handler: Ativado quando mensagens chegam do servidor
     ws.onmessage = function(event) {
         try {
+            // Desserializa JSON recebido
             const envelope = JSON.parse(event.data);
             
             // Verifica se é o nosso novo Padrão Envelope (Batch ou Critical)
@@ -32,25 +47,28 @@ function connectWebSocket() {
                 // O Payload agora é um Array com até 8 nós
                 envelope.payload.forEach(packet => {
                     
-                    // 1. Atualiza o Card na tela principal
+                    // Atualiza o card do nó na dashboard principal
                     updateDashboard(packet);
                     
-                    // Pisca o painel se a mensagem chegou pela Via Rápida Crítica
+                    // Dispara alerta visual se o pacote veio pela via crítica (emergência)
                     if (envelope.type === 'critical') {
                         triggerVisualAlert(packet.node_id);
                     }
 
-                    // 2. Registra no Histórico da Memória (Ignora nós Offline)
+                    // Incrementa histórico de métricas para o gráfico
                     const id = packet.node_id;
+                    // Cria estrutura de histórico se não existir
                     if (!nodeHistory[id]) {
                         nodeHistory[id] = { temp: [], stress: [], labels: [] };
                     }
                     
+                    // Ignora nós offline e armazena apenas nós com dados válidos
                     if (packet.current_state !== -1) {
                         nodeHistory[id].labels.push('');
                         nodeHistory[id].temp.push(packet.temperature);
                         nodeHistory[id].stress.push(packet.stress);
                         
+                        // Remove dados antigos se ultrapassar limite de histórico
                         if (nodeHistory[id].temp.length > MAX_HISTORY) {
                             nodeHistory[id].labels.shift();
                             nodeHistory[id].temp.shift();
@@ -58,16 +76,19 @@ function connectWebSocket() {
                         }
                     }
                     
-                    // 3. Atualiza a Gaveta SOMENTE se estiver aberta para este nó
+                    // Atualiza painel detalhado (gaveta) apenas se estiver aberto para este nó
                     if (activeDrawerNode === id) {
+                        // Exibe '-- ' para nós offline
                         if (packet.current_state === -1) {
                             document.getElementById('drawer-power').innerText = "-- W";
                             document.getElementById('drawer-latency').innerText = "-- ms";
                         } else {
+                            // Exibe dados com 1 casa decimal
                             document.getElementById('drawer-power').innerText = Number(packet.power_draw).toFixed(1) + " W";
                             document.getElementById('drawer-latency').innerText = Number(packet.latency).toFixed(1) + " ms";
                         }
                         
+                        // Atualiza gráfico histórico com novos dados
                         historyChart.data.labels = nodeHistory[id].labels;
                         historyChart.data.datasets[0].data = nodeHistory[id].temp;
                         historyChart.data.datasets[1].data = nodeHistory[id].stress;
@@ -80,16 +101,19 @@ function connectWebSocket() {
         }
     };
 
+    // Event handler: Executado quando erro de conexão ocorre
     ws.onerror = function(error) {
         console.error("⚠️ Erro de rede no WebSocket.");
-        ws.close(); // Força o onclose a ser ativado para reconectar
+        // Fecha a conexão para ativar o handler onclose que fará reconexão
+        ws.close();
     };
 
     // A MÁGICA DA RECONEXÃO ESTÁ AQUI
+    // Event handler: Reconexão automática quando servidor desconecta
     ws.onclose = function() {
         console.warn("❌ Conexão perdida (Servidor parado). Tentando reconectar em 3 segundos...");
         
-        // Pinta todo mundo de cinza enquanto o servidor não volta
+        // Marca todos os nós como OFFLINE visualmente (cinzento)
         const badges = document.querySelectorAll('.badge');
         badges.forEach(b => { 
             b.innerText = 'OFFLINE'; 
@@ -98,46 +122,62 @@ function connectWebSocket() {
             }
         });
 
-        // Tenta rodar a função de conectar novamente após 3000ms
+        // Agenda reconexão após 3 segundos (backoff simples)
         setTimeout(connectWebSocket, 3000);
     };
 }
 
-// Dispara a conexão pela primeira vez quando a página carrega
+// Inicia a conexão WebSocket quando a página HTML carrega
 connectWebSocket();
 
 // ==========================================
 // FUNÇÕES DA GAVETA E GRÁFICO
 // ==========================================
+// Inicializa o gráfico Chart.js com histórico de temperatura e CPU stress
 function initChart() {
+    // Obtém contexto 2D do canvas para desenhar o gráfico
     const ctx = document.getElementById('historyChart').getContext('2d');
+    // Cria instância do gráfico com configurações
     historyChart = new Chart(ctx, {
+        // Tipo de gráfico: linha (line chart)
         type: 'line',
+        // Dados: labels (eixo X) e datasets (2 séries: temperatura e stress)
         data: {
             labels: [],
             datasets: [
+                // Série 1: Temperatura em Celsius (cor vermelha)
                 { label: 'Temperatura (°C)', borderColor: '#f44336', data: [], tension: 0.4 },
+                // Série 2: CPU Stress em percentual (cor laranja)
                 { label: 'CPU Stress (%)', borderColor: '#ff9800', data: [], tension: 0.4 }
             ]
         },
+        // Opções de renderização
         options: {
-            responsive: true,
-            animation: false, 
-            scales: { y: { beginAtZero: true, max: 110 } }
+            responsive: true,        // Adapta-se ao tamanho do container
+            animation: false,         // Desativa animação para melhor performance
+            scales: { y: { beginAtZero: true, max: 110 } }  // Eixo Y: 0-110
         }
     });
 }
 
+// Abre a gaveta (drawer) com detalhes completos do nó selecionado
 function openDetailsModal(nodeId) {
-    activeDrawerNode = nodeId;
-    document.getElementById('drawer-title').innerText = `Detalhes do Nó ${nodeId}`;
-    document.body.classList.add('drawer-open');
-    
+	// Marca qual nó tem a gaveta aberta
+	activeDrawerNode = nodeId;
+	// Atualiza título da gaveta
+	document.getElementById('drawer-title').innerText = `Detalhes do Nó ${nodeId}`;
+	// Adiciona classe CSS para mostrar a gaveta (pode ter animação)
+	document.body.classList.add('drawer-open');
+	
+	// Inicializa gráfico na primeira abertura
     if (!historyChart) initChart();
 }
 
+// Fecha a gaveta (drawer) de detalhes
 function closeDetailsModal() {
-    activeDrawerNode = null;
+	// Limpa o nó ativo
+	activeDrawerNode = null;
+	// Remove a classe CSS que mostra a gaveta
     document.body.classList.remove('drawer-open');
 }
 
@@ -253,15 +293,20 @@ function updateDashboard(packet) {
     }
 }
 
+// Dispara alerta visual no card: pisca por 1.5 segundos
 function triggerVisualAlert(nodeId) {
-    const card = document.getElementById(`node-${nodeId}`);
-    if (card) {
-        card.classList.add('blinking-alert');
-        
-        if (alertTimeouts[nodeId]) {
-            clearTimeout(alertTimeouts[nodeId]);
-        }
-        
+	// Obtém elemento do card
+	const card = document.getElementById(`node-${nodeId}`);
+	if (card) {
+		// Adiciona classe CSS para efeito de piscar
+		card.classList.add('blinking-alert');
+		
+		// Limpa timeout anterior se existir (evita múltiplos alertas)
+		if (alertTimeouts[nodeId]) {
+			clearTimeout(alertTimeouts[nodeId]);
+		}
+		
+		// Remove efeito de piscar após 1.5 segundos
         alertTimeouts[nodeId] = setTimeout(() => {
             card.classList.remove('blinking-alert');
         }, 1500);
@@ -271,27 +316,37 @@ function triggerVisualAlert(nodeId) {
 // ==========================================
 // DISPARADORES DE EVENTO
 // ==========================================
+// Handler: Dispara comando de Load Balancer quando usuário alterna o switch
 function toggleLB(nodeId, isChecked) {
-    const signal = isChecked ? 'trigger_on' : 'trigger_off';
+	// Converte boolean do switch em sinal de comando
+	const signal = isChecked ? 'trigger_on' : 'trigger_off';
+	// Envia comando HTTP ao servidor
     sendControl('lb', signal, nodeId);
 }
 
+// Handler: Dispara comando de HVAC quando usuário alterna o segmented control
 function setHVAC(nodeId, levelSignal) {
+	// levelSignal pode ser: set_off, set_balanced, set_max
     sendControl('hvac', levelSignal, nodeId);
 }
 
 // ==========================================
 // 3. COMANDOS DE ATUAÇÃO FÍSICA (HTTP)
 // ==========================================
+// Envia comando de controle ao servidor central via HTTP POST
+// Responsável por comunicar com atuadores (HVAC e Load Balancer)
 function sendControl(type, signal, nodeId) {
+    // Monta payload JSON com informações do comando
     const payload = {
-        type: type,             
-        signal: signal,         
-        target_node: parseInt(nodeId, 10) 
+        type: type,             // 'hvac' ou 'lb'
+        signal: signal,         // 'set_max', 'set_balanced', 'set_off', etc
+        target_node: parseInt(nodeId, 10)  // ID numérico do nó alvo
     };
 
+    // Log para debugging
     console.log(`[OUT] Disparando comando HTTP para API Gateway:`, payload);
 
+    // Envia requisição HTTP POST para /api/control
     fetch('/api/control', {
         method: 'POST',
         headers: { 
@@ -299,12 +354,15 @@ function sendControl(type, signal, nodeId) {
         },
         body: JSON.stringify(payload)
     })
+    // Handler de sucesso
     .then(response => {
         if (!response.ok) {
             throw new Error(`Servidor Gateway retornou Status ${response.status}`);
         }
+        // Log de confirmação
         console.log(`[IN] Comando [${type}:${signal}] confirmado pelo Nó ${nodeId}`);
     })
+    // Handler de erro
     .catch(err => {
         console.error(`[FALHA] Não foi possível atuar no Nó ${nodeId}:`, err);
         alert(`Falha de comunicação ao tentar enviar o comando para o Nó ${nodeId}. Verifique o console.`);

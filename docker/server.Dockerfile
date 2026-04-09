@@ -15,7 +15,7 @@ RUN go mod download
 COPY . .
 
 # Compila o binário estático do Servidor Central
-RUN CGO_ENABLED=0 GOOS=linux go build -o /app/bin_server ./cmd/server/main.go
+RUN CGO_ENABLED=0 GOOS=linux go build -o /app/bin_server ./cmd/server/
 
 # ==========================================
 # ESTÁGIO 2: O Produto Final (Runner)

@@ -9,7 +9,7 @@ import (
 	"strconv"
 	"time"
 
-	"dc-monitor/internal"
+	node "dc-monitor/internal"
 	"dc-monitor/internal/network"
 	"dc-monitor/pkg/protocol"
 )
@@ -48,6 +48,9 @@ func main() {
 	for range ticker.C {
 		node.Tick()
 
+		// Monta pacote de telemetria com as métricas atuais do nó
+		// Lê valores simultâneos de simulação e estados dos atuadores via atomic loads
+		// Timestamp em milissegundos para sincronização no servidor central
 		packet := protocol.TelemetryPacket{
 			ID:              node.ID,
 			Timestamp:       time.Now().UnixMilli(),
@@ -68,6 +71,7 @@ func main() {
 }
 
 func startActuatorListener(node *node.NodeSystemSensor, tcpPort string) {
+	// Cria listener TCP na porta especificada
 	listener, err := net.Listen("tcp", ":"+tcpPort)
 	if err != nil {
 		fmt.Printf("Nó %d: Falha ao abrir porta TCP %s - %v\n", node.ID, tcpPort, err)
@@ -75,28 +79,32 @@ func startActuatorListener(node *node.NodeSystemSensor, tcpPort string) {
 	}
 	defer listener.Close()
 
+	// Listener ativo aguardando conexões de atuadores
 	fmt.Printf("Nó %d escutando comandos do Atuador na porta TCP %s\n", node.ID, tcpPort)
 
 	for {
+		// Bloqueia até uma conexão TCP chegar
 		conn, err := listener.Accept()
 		if err != nil {
 			continue
 		}
-		// Processa o comando em paralelo para não travar o listener
+		// Processa cada comando em goroutine separada (não bloqueia listener)
 		go handleActuatorCommand(conn, node)
 	}
 }
 
-// handleActuatorCommand decodifica a ordem e altera a struct atômica
+// handleActuatorCommand decodifica e processa mensagens de controle dos atuadores
+// Atualiza atomicamente o estado do nó (HVAC ou Load Balancer) para thread-safety
 func handleActuatorCommand(conn net.Conn, node *node.NodeSystemSensor) {
 	defer conn.Close()
 
+	// Decodifica comando JSON do atuador
 	var msg protocol.ControlMessage
 	if err := json.NewDecoder(conn).Decode(&msg); err != nil {
 		return
 	}
 
-	// 1. Roteamento do Comando HVAC
+	// ========== 1. ROTEAMENTO DO COMANDO HVAC ==========
 	if msg.Type == "hvac" {
 		if msg.Requester == "auto" {
 			// Ação Automática: Resfriamento forçado temporário
