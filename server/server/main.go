@@ -8,7 +8,10 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"os/signal"
 	"sync"
+	"sync/atomic"
+	"syscall"
 	"time"
 
 	"dc-monitor/cmd/logs"
@@ -17,15 +20,28 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-var serverTriggerMutex sync.Mutex
-var criticalStartTimes = make(map[int]time.Time)
+// ==========================================
+// VARIÁVEIS GLOBAIS DE ALTA PERFORMANCE
+// ==========================================
+
+// Watchdog: Array atômico para armazenar o Unix Timestamp do último contato
+var lastSeen [9]int64
+
+// Timers Críticos: Array atômico (0 = Normal, >0 = Timestamp Crítico, -1 = Disparado)
+var criticalStart [9]int64
+
+// Quadro de Estado Atual: Armazena o pacote mais recente para o batching de 1s
+var latestPackets [9]protocol.TelemetryPacket
+var latestPacketsMutex sync.RWMutex
+
+// Canal de Saída para o Front-end (Agora aceita interfaces para criar o Envelope JSON)
+var broadcast = make(chan interface{}, 100)
 
 const (
-	UDPPort        = ":9000"
-	HTTPPort       = ":8080"
-	WorkerCount    = 16
-	BufferSize     = 10000
-	TicksPerSecond = 1000
+	UDPPort     = ":9000"
+	HTTPPort    = ":8080"
+	WorkerCount = 16
+	BufferSize  = 10000
 )
 
 var upgrader = websocket.Upgrader{
@@ -33,17 +49,14 @@ var upgrader = websocket.Upgrader{
 }
 
 var clients = make(map[*websocket.Conn]bool)
-var broadcast = make(chan []byte)
+var clientsMutex sync.Mutex // Protege o mapa de clientes no envio concorrente
 
 func main() {
-
 	addr, _ := net.ResolveUDPAddr("udp", UDPPort)
 	conn, err := net.ListenUDP("udp", addr)
-
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer conn.Close()
 
 	logChannel := make(chan protocol.TelemetryPacket, 10000)
 	go logs.CSVLoggerWorker(logChannel)
@@ -51,48 +64,169 @@ func main() {
 	packetQueue := make(chan []byte, BufferSize)
 	var wg sync.WaitGroup
 
+	// Inicia os Workers e passa o WaitGroup
 	for i := 1; i <= WorkerCount; i++ {
 		wg.Add(1)
 		go worker(i, packetQueue, &wg, logChannel)
 	}
 
 	// ==========================================
-	// 2. SETUP DAS ROTAS WEB
+	// SETUP DAS ROTAS WEB
 	// ==========================================
-
 	http.HandleFunc("/ws", handleConnections)
 	http.HandleFunc("/api/control", handleClientControl)
-	http.Handle("/", http.FileServer(http.Dir("./client")))
+	//http.Handle("/", http.FileServer(http.Dir("./client")))
 
 	go func() {
-		fmt.Println("Servidor Web e Interface Gráfica na porta 8080...")
+		fmt.Println("Servidor HTTP na porta 8080...")
 		if err := http.ListenAndServe(HTTPPort, nil); err != nil {
 			log.Fatal("Erro fatal no servidor HTTP:", err)
 		}
 	}()
 
-	// Inicia a Goroutine que dispara os WebSockets
+	// Inicia as Goroutines de transmissão
 	go handleMessages()
+	go telemetryBroadcaster()
 
 	// ==========================================
-	// 3. O LOOP PRINCIPAL (UDP)
+	// LOOP PRINCIPAL (UDP) ASSÍNCRONO
 	// ==========================================
-	networkBuffer := make([]byte, 2048)
-	fmt.Println("Servidor Central escutando telemetria UDP na porta 9000...")
+	go func() {
+		networkBuffer := make([]byte, 2048)
+		fmt.Println("Servidor Central escutando telemetria UDP na porta 9000...")
+		for {
+			n, _, err := conn.ReadFromUDP(networkBuffer)
+			if err != nil {
+				break // Sai do loop se a conexão for fechada
+			}
+			dataCopy := make([]byte, n)
+			copy(dataCopy, networkBuffer[:n])
+			packetQueue <- dataCopy
+		}
+	}()
 
-	for {
-		n, _, err := conn.ReadFromUDP(networkBuffer)
-		if err != nil {
+	// ==========================================
+	// GRACEFUL SHUTDOWN (DESLIGAMENTO SEGURO)
+	// ==========================================
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, os.Interrupt, syscall.SIGTERM)
+
+	<-quit // Trava a execução até receber o sinal de desligamento
+	fmt.Println("\n[SHUTDOWN] Sinal recebido. Iniciando desligamento seguro...")
+
+	conn.Close()       // Para de receber pacotes novos
+	close(packetQueue) // Avisa os workers para esvaziarem a fila e saírem
+	wg.Wait()          // Espera todos os 16 workers terminarem
+
+	fmt.Println("[SHUTDOWN] Servidor desligado com segurança.")
+}
+
+// ---------------------------------------------------------
+// WORKERS E PROCESSAMENTO
+// ---------------------------------------------------------
+
+func worker(id int, queue <-chan []byte, wg *sync.WaitGroup, logChannel chan<- protocol.TelemetryPacket) {
+	defer wg.Done()
+
+	// Quando close(packetQueue) for chamado na main, o loop termina naturalmente
+	for rawData := range queue {
+		var packet protocol.TelemetryPacket
+		if err := json.Unmarshal(rawData, &packet); err != nil {
 			continue
 		}
-		dataCopy := make([]byte, n)
-		copy(dataCopy, networkBuffer[:n])
-		packetQueue <- dataCopy
+
+		if packet.ID < 1 || packet.ID > 8 {
+			continue // Proteção de limite do array
+		}
+
+		now := time.Now().Unix()
+
+		// 1. WATCHDOG ATÔMICO
+		atomic.StoreInt64(&lastSeen[packet.ID], now)
+
+		// 2. QUADRO DE ESTADO (SWAP)
+		latestPacketsMutex.Lock()
+		latestPackets[packet.ID] = packet
+		latestPacketsMutex.Unlock()
+
+		// 3. LÓGICA DE ESTADO CRÍTICO E AUTO-HEAL
+		if packet.CurrentState == 2 {
+			// QoS: Dispara ao WebSocket imediatamente contornando o Batch
+			envelope := map[string]interface{}{
+				"type":    "critical",
+				"payload": []protocol.TelemetryPacket{packet},
+			}
+			select {
+			case broadcast <- envelope:
+			default: // Backpressure
+			}
+
+			// Cronômetro Atômico sem Mutex
+			start := atomic.LoadInt64(&criticalStart[packet.ID])
+			if start == 0 {
+				atomic.StoreInt64(&criticalStart[packet.ID], now)
+			} else if start > 0 && now-start >= 5 {
+				atomic.StoreInt64(&criticalStart[packet.ID], -1) // -1 = Já disparado
+				go autoHealNode(packet.ID)
+			}
+		} else {
+			// Se o estado voltar ao normal, reseta o cronômetro
+			atomic.StoreInt64(&criticalStart[packet.ID], 0)
+		}
+
+		// Envia para log
+		select {
+		case logChannel <- packet:
+		default:
+		}
 	}
 }
 
 // ---------------------------------------------------------
-// FUNÇÕES AUXILIARES DE REDE E WEBSOCKET
+// BROADCASTER (BATCHING 1Hz) E WATCHDOG
+// ---------------------------------------------------------
+
+func telemetryBroadcaster() {
+	ticker := time.NewTicker(1 * time.Second)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		now := time.Now().Unix()
+		var batch []protocol.TelemetryPacket
+
+		latestPacketsMutex.RLock()
+		for i := 1; i <= 8; i++ {
+			p := latestPackets[i]
+
+			// Verifica se o nó caiu (mais de 5s sem resposta)
+			lastContact := atomic.LoadInt64(&lastSeen[i])
+			if lastContact == 0 || now-lastContact > 5 {
+				p.ID = i
+				p.CurrentState = -1 // Código de Offline para o Front-end
+			}
+
+			if p.ID != 0 {
+				batch = append(batch, p)
+			}
+		}
+		latestPacketsMutex.RUnlock()
+
+		if len(batch) > 0 {
+			envelope := map[string]interface{}{
+				"type":    "batch",
+				"payload": batch,
+			}
+			select {
+			case broadcast <- envelope:
+			default:
+				// Backpressure: Cliente web lento, dropa o frame inteiro
+			}
+		}
+	}
+}
+
+// ---------------------------------------------------------
+// FUNÇÕES DE REDE E WEBSOCKET
 // ---------------------------------------------------------
 
 func handleConnections(w http.ResponseWriter, r *http.Request) {
@@ -101,26 +235,43 @@ func handleConnections(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer ws.Close()
+
+	clientsMutex.Lock()
 	clients[ws] = true
+	clientsMutex.Unlock()
+
 	for {
 		if _, _, err := ws.ReadMessage(); err != nil {
+			clientsMutex.Lock()
 			delete(clients, ws)
+			clientsMutex.Unlock()
 			break
 		}
 	}
 }
 
 func handleMessages() {
-	for {
-		msg := <-broadcast
+	for msg := range broadcast {
+		// Serializa o Envelope (Batch ou Critical)
+		jsonData, err := json.Marshal(msg)
+		if err != nil {
+			continue
+		}
+
+		clientsMutex.Lock()
 		for client := range clients {
-			if err := client.WriteMessage(websocket.TextMessage, msg); err != nil {
+			if err := client.WriteMessage(websocket.TextMessage, jsonData); err != nil {
 				client.Close()
 				delete(clients, client)
 			}
 		}
+		clientsMutex.Unlock()
 	}
 }
+
+// ---------------------------------------------------------
+// COMANDOS DE ATUADOR E RETRY
+// ---------------------------------------------------------
 
 func handleClientControl(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
@@ -133,7 +284,6 @@ func handleClientControl(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "JSON inválido", http.StatusBadRequest)
 		return
 	}
-
 	msg.Requester = "user"
 
 	var actuatorURL string
@@ -146,7 +296,7 @@ func handleClientControl(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err := sendHTTPCommand(msg, actuatorURL)
+	err := sendCommandWithRetry(msg, actuatorURL, 1) // 1 tentativa para comandos manuais
 	if err != nil {
 		fmt.Printf("[ERRO MANUAL] Falha ao contatar Atuador %s: %v\n", msg.Type, err)
 		http.Error(w, "Falha de comunicação com o atuador", http.StatusInternalServerError)
@@ -157,122 +307,67 @@ func handleClientControl(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
-func worker(id int, queue <-chan []byte, wg *sync.WaitGroup, logChannel chan<- protocol.TelemetryPacket) {
-	defer wg.Done()
+func autoHealNode(nodeID int) {
+	fmt.Printf("⚠️ Nó %d em estado crítico por >5s. Iniciando Auto-Heal!\n", nodeID)
 
-	for rawData := range queue {
-
-		var header protocol.TelemetryPacket
-
-		if err := json.Unmarshal(rawData, &header); err != nil {
-			continue
-		}
-
-		// REGRA 1
-		isCritical := header.CurrentState == 2
-
-		serverTriggerMutex.Lock()
-
-		if isCritical {
-			startTime, exists := criticalStartTimes[header.ID]
-			if !exists {
-
-				criticalStartTimes[header.ID] = time.Now()
-			} else if time.Since(startTime) >= 5*time.Second {
-
-				delete(criticalStartTimes, header.ID)
-
-				// Dispara o gatilho automático em uma rotina separada
-				go autoHealNode(header.ID)
-			}
+	go func() {
+		payloadLB := protocol.ControlMessage{Type: "lb", Signal: "trigger_on", TargetNode: nodeID, Requester: "auto"}
+		urlLB := os.Getenv("LB_SERVICE_URL")
+		if err := sendCommandWithRetry(payloadLB, urlLB, 3); err != nil {
+			fmt.Printf("ERRO FATAL LB (Nó %d): %v\n", nodeID, err)
 		} else {
-			delete(criticalStartTimes, header.ID)
+			fmt.Printf("Comando LB entregue ao Nó %d com sucesso!\n", nodeID)
 		}
+	}()
 
-		serverTriggerMutex.Unlock()
-
-		// REGRA 2
-		isTickInterval := header.TickCount%TicksPerSecond == 0
-
-		if isCritical || isTickInterval {
-			broadcast <- rawData
+	go func() {
+		payloadHVAC := protocol.ControlMessage{Type: "hvac", Signal: "trigger_on", TargetNode: nodeID, Requester: "auto"}
+		urlHVAC := os.Getenv("HVAC_SERVICE_URL")
+		if err := sendCommandWithRetry(payloadHVAC, urlHVAC, 3); err != nil {
+			fmt.Printf("ERRO FATAL HVAC (Nó %d): %v\n", nodeID, err)
+		} else {
+			fmt.Printf("Comando HVAC entregue ao Nó %d com sucesso!\n", nodeID)
 		}
-
-		select {
-		case logChannel <- header:
-
-		default:
-			fmt.Printf("[AVISO] Canal de log cheio, descartando pacote do Nó %d\n", header.ID)
-		}
-	}
+	}()
 }
 
-func autoHealNode(nodeID int) {
-	fmt.Printf("Nó %d em estado crítico por >3s.\n", nodeID)
-
-	// Dispara o Load Balancer Automático
-	go func() {
-		payloadLB := protocol.ControlMessage{
-			Type:       "lb",
-			Signal:     "trigger_on",
-			TargetNode: nodeID,
-			Requester:  "auto",
+// Wrapper para adicionar resiliência de rede aos disparos HTTP
+func sendCommandWithRetry(payload protocol.ControlMessage, targetURL string, maxRetries int) error {
+	var err error
+	for i := 1; i <= maxRetries; i++ {
+		err = sendHTTPCommand(payload, targetURL)
+		if err == nil {
+			return nil
 		}
-
-		urlLB := os.Getenv("LB_SERVICE_URL")
-		err := sendHTTPCommand(payloadLB, urlLB)
-		if err != nil {
-			fmt.Printf("Erro: Nó %d: %v\n", nodeID, err)
-		} else {
-			fmt.Printf("Comando entregue ao Nó %d\n", nodeID)
+		if i < maxRetries {
+			fmt.Printf("[FALHA DE REDE] Tentativa %d/%d falhou. Retentando em 1s...\n", i, maxRetries)
+			time.Sleep(1 * time.Second)
 		}
-	}()
-
-	// Dispara o HVAC Automático
-	go func() {
-		payloadHVAC := protocol.ControlMessage{
-			Type:       "hvac",
-			Signal:     "trigger_on",
-			TargetNode: nodeID,
-			Requester:  "auto",
-		}
-
-		urlHVAC := os.Getenv("HVAC_SERVICE_URL")
-		err := sendHTTPCommand(payloadHVAC, urlHVAC)
-		if err != nil {
-			fmt.Printf("ERRO: Nó %d: %v\n", nodeID, err)
-		} else {
-			fmt.Printf("Comando entregue ao Nó %d\n", nodeID)
-		}
-	}()
+	}
+	return fmt.Errorf("Desistindo após %d tentativas: %v", maxRetries, err)
 }
 
 func sendHTTPCommand(payload protocol.ControlMessage, targetURL string) error {
 	jsonData, err := json.Marshal(payload)
 	if err != nil {
-		return fmt.Errorf("erro ao serializar json: %v", err)
+		return err
 	}
 
 	req, err := http.NewRequest(http.MethodPost, targetURL, bytes.NewBuffer(jsonData))
 	if err != nil {
-		return fmt.Errorf("erro ao criar requisicao http: %v", err)
+		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
 
-	// Timeout curto impede que uma falha de rede trave as goroutines do Servidor Central
-	client := &http.Client{
-		Timeout: 2 * time.Second,
-	}
-
+	client := &http.Client{Timeout: 2 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
-		return fmt.Errorf("falha na conexao com atuador: %v", err)
+		return err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusAccepted {
-		return fmt.Errorf("atuador retornou status: %d", resp.StatusCode)
+		return fmt.Errorf("status HTTP: %d", resp.StatusCode)
 	}
-
 	return nil
 }
