@@ -7,7 +7,6 @@ import (
 	"log"
 	"net"
 	"net/http"
-	//"net/url"
 	"os"
 	"sync"
 	"time"
@@ -63,7 +62,7 @@ func main() {
 
 	http.HandleFunc("/ws", handleConnections)
 	http.HandleFunc("/api/control", handleClientControl)
-	//http.Handle("/", http.FileServer(http.Dir("./client")))
+	http.Handle("/", http.FileServer(http.Dir("./client")))
 
 	go func() {
 		fmt.Println("Servidor Web e Interface Gráfica na porta 8080...")
