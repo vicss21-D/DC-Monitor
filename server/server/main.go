@@ -34,8 +34,13 @@ var criticalStart [9]int64
 var latestPackets [9]protocol.TelemetryPacket
 var latestPacketsMutex sync.RWMutex
 
-// Canal de Saída para o Front-end (Agora aceita interfaces para criar o Envelope JSON)
-var broadcast = make(chan interface{}, 100)
+// ==========================================
+// CANAIS DE SAÍDA (MOTOR DUPLO)
+// ==========================================
+// Via VIP: Fila tradicional (FIFO) com espaço para 50 alertas urgentes
+var broadcastCritical = make(chan interface{}, 50) 
+// Via Normal: Janela Deslizante (Ring Buffer) com espaço para 10 envelopes
+var broadcastNormal = RingChannel(10)
 
 const (
 	UDPPort     = ":9000"
@@ -75,7 +80,6 @@ func main() {
 	// ==========================================
 	http.HandleFunc("/ws", handleConnections)
 	http.HandleFunc("/api/control", handleClientControl)
-	//http.Handle("/", http.FileServer(http.Dir("./client")))
 
 	go func() {
 		fmt.Println("Servidor HTTP na porta 8080...")
@@ -128,7 +132,6 @@ func main() {
 func worker(id int, queue <-chan []byte, wg *sync.WaitGroup, logChannel chan<- protocol.TelemetryPacket) {
 	defer wg.Done()
 
-	// Quando close(packetQueue) for chamado na main, o loop termina naturalmente
 	for rawData := range queue {
 		var packet protocol.TelemetryPacket
 		if err := json.Unmarshal(rawData, &packet); err != nil {
@@ -151,14 +154,16 @@ func worker(id int, queue <-chan []byte, wg *sync.WaitGroup, logChannel chan<- p
 
 		// 3. LÓGICA DE ESTADO CRÍTICO E AUTO-HEAL
 		if packet.CurrentState == 2 {
-			// QoS: Dispara ao WebSocket imediatamente contornando o Batch
+			// QoS: Vai para a Via VIP (Garantia de Entrega)
 			envelope := map[string]interface{}{
 				"type":    "critical",
 				"payload": []protocol.TelemetryPacket{packet},
 			}
+			
 			select {
-			case broadcast <- envelope:
-			default: // Backpressure
+			case broadcastCritical <- envelope:
+			default:
+				log.Println("[AVISO] Canal Crítico lotado! Alerta descartado para salvar CPU.")
 			}
 
 			// Cronômetro Atômico sem Mutex
@@ -216,11 +221,8 @@ func telemetryBroadcaster() {
 				"type":    "batch",
 				"payload": batch,
 			}
-			select {
-			case broadcast <- envelope:
-			default:
-				// Backpressure: Cliente web lento, dropa o frame inteiro
-			}
+			// Empurra para a Janela Deslizante (Se a rede estiver lenta, descarta o velho)
+			broadcastNormal.Push(envelope)
 		}
 	}
 }
@@ -250,22 +252,41 @@ func handleConnections(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// O CÉREBRO DO ROTEAMENTO: Lê dos dois canais com prioridade
 func handleMessages() {
-	for msg := range broadcast {
-		// Serializa o Envelope (Batch ou Critical)
-		jsonData, err := json.Marshal(msg)
-		if err != nil {
-			continue
-		}
+	normalOut := broadcastNormal.Out()
 
-		clientsMutex.Lock()
-		for client := range clients {
-			if err := client.WriteMessage(websocket.TextMessage, jsonData); err != nil {
-				client.Close()
-				delete(clients, client)
+	for {
+		select {
+		// PRIORIDADE 1: Via Crítica
+		case msg := <-broadcastCritical:
+			sendToAllClients(msg)
+			
+		default:
+			// PRIORIDADE 2: Lê o que estiver disponível
+			select {
+			case msg := <-broadcastCritical:
+				sendToAllClients(msg)
+			case msg := <-normalOut:
+				sendToAllClients(msg)
 			}
 		}
-		clientsMutex.Unlock()
+	}
+}
+
+func sendToAllClients(msg interface{}) {
+	jsonData, err := json.Marshal(msg)
+	if err != nil {
+		return
+	}
+
+	clientsMutex.Lock()
+	defer clientsMutex.Unlock()
+	for client := range clients {
+		if err := client.WriteMessage(websocket.TextMessage, jsonData); err != nil {
+			client.Close()
+			delete(clients, client)
+		}
 	}
 }
 
