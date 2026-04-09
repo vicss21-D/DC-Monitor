@@ -2,89 +2,55 @@ version: '3.8'
 
 services:
   # ==========================================
-  # SERVIDOR CENTRAL
-  # ==========================================
-  server:
-    build:
-      context: .
-      dockerfile: docker/server.Dockerfile
-    container_name: dc_server
-    env_file:
-      - .env
-    ports:
-      - "8080:8080"
-      - "9000:9000/udp" # Porta UDP
-    volumes:
-      - ./client:/app/client
-    networks:
-      - dc_net
-
-  # ==========================================
-  # SENSORES DE HARDWARE
+  # SENSORES DE HARDWARE (Nós 1 a 8)
   # ==========================================
   sensor_1:
     build: { context: ., dockerfile: docker/node.Dockerfile }
     container_name: sensor_1
     env_file: [ .env ]
     environment: [ NODE_ID=1 ]
-    depends_on: [ server ]
-    networks: [ dc_net ]
 
   sensor_2:
     build: { context: ., dockerfile: docker/node.Dockerfile }
     container_name: sensor_2
     env_file: [ .env ]
     environment: [ NODE_ID=2 ]
-    depends_on: [ server ]
-    networks: [ dc_net ]
 
   sensor_3:
     build: { context: ., dockerfile: docker/node.Dockerfile }
     container_name: sensor_3
     env_file: [ .env ]
     environment: [ NODE_ID=3 ]
-    depends_on: [ server ]
-    networks: [ dc_net ]
 
   sensor_4:
     build: { context: ., dockerfile: docker/node.Dockerfile }
     container_name: sensor_4
     env_file: [ .env ]
     environment: [ NODE_ID=4 ]
-    depends_on: [ server ]
-    networks: [ dc_net ]
 
   sensor_5:
     build: { context: ., dockerfile: docker/node.Dockerfile }
     container_name: sensor_5
     env_file: [ .env ]
     environment: [ NODE_ID=5 ]
-    depends_on: [ server ]
-    networks: [ dc_net ]
 
   sensor_6:
     build: { context: ., dockerfile: docker/node.Dockerfile }
     container_name: sensor_6
     env_file: [ .env ]
     environment: [ NODE_ID=6 ]
-    depends_on: [ server ]
-    networks: [ dc_net ]
 
   sensor_7:
     build: { context: ., dockerfile: docker/node.Dockerfile }
     container_name: sensor_7
     env_file: [ .env ]
     environment: [ NODE_ID=7 ]
-    depends_on: [ server ]
-    networks: [ dc_net ]
 
   sensor_8:
     build: { context: ., dockerfile: docker/node.Dockerfile }
     container_name: sensor_8
     env_file: [ .env ]
     environment: [ NODE_ID=8 ]
-    depends_on: [ server ]
-    networks: [ dc_net ]
 
   # ==========================================
   # ATUADORES FÍSICOS
@@ -95,8 +61,8 @@ services:
       dockerfile: docker/hvac.Dockerfile
     container_name: hvac_actuator
     env_file: [ .env ]
-    depends_on: [ server ]
-    networks: [ dc_net ]
+    ports:
+      - "8081:8081" # ABERTO: Para o Servidor
 
   lb_service:
     build:
@@ -104,18 +70,16 @@ services:
       dockerfile: docker/lb.Dockerfile
     container_name: lb_actuator
     env_file: [ .env ]
-    depends_on: [ server ]
-    networks: [ dc_net ]
+    ports:
+      - "8082:8082" # ABERTO: Para o Servidor
 
+  # ==========================================
+  # FRONT-END (Proxy Reverso)
+  # ==========================================
   web_client:
     build:
       context: .
       dockerfile: docker/client.Dockerfile
+    container_name: web_client
     ports:
-      - "80:80"
-    depends_on: [ server ]
-    networks: [ dc_net ]
-
-networks:
-  dc_net:
-    driver: bridge
+      - "80:80" 

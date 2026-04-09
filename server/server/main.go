@@ -7,6 +7,8 @@ import (
 	"log"
 	"net"
 	"net/http"
+	//"net/url"
+	"os"
 	"sync"
 	"time"
 
@@ -137,9 +139,9 @@ func handleClientControl(w http.ResponseWriter, r *http.Request) {
 
 	var actuatorURL string
 	if msg.Type == "hvac" {
-		actuatorURL = "http://hvac_service:8081/trigger"
+		actuatorURL = os.Getenv("HVAC_SERVICE_URL")
 	} else if msg.Type == "lb" {
-		actuatorURL = "http://lb_service:8082/trigger"
+		actuatorURL = os.Getenv("LB_SERVICE_URL")
 	} else {
 		http.Error(w, "Atuador desconhecido", http.StatusBadRequest)
 		return
@@ -218,7 +220,8 @@ func autoHealNode(nodeID int) {
 			Requester:  "auto",
 		}
 
-		err := sendHTTPCommand(payloadLB, "http://lb_service:8082/trigger")
+		urlLB := os.Getenv("LB_SERVICE_URL")
+		err := sendHTTPCommand(payloadLB, urlLB)
 		if err != nil {
 			fmt.Printf("Erro: Nó %d: %v\n", nodeID, err)
 		} else {
@@ -235,7 +238,8 @@ func autoHealNode(nodeID int) {
 			Requester:  "auto",
 		}
 
-		err := sendHTTPCommand(payloadHVAC, "http://hvac_service:8081/trigger")
+		urlHVAC := os.Getenv("HVAC_SERVICE_URL")
+		err := sendHTTPCommand(payloadHVAC, urlHVAC)
 		if err != nil {
 			fmt.Printf("ERRO: Nó %d: %v\n", nodeID, err)
 		} else {

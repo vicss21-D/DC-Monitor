@@ -9,7 +9,7 @@ import (
 	"strconv"
 	"time"
 
-	node "dc-monitor/internal"
+	"dc-monitor/internal"
 	"dc-monitor/internal/network"
 	"dc-monitor/pkg/protocol"
 )
