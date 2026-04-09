@@ -9,7 +9,7 @@ import (
 	"strconv"
 	"time"
 
-	node "dc-monitor/internal"
+	"dc-monitor/internal"
 	"dc-monitor/internal/network"
 	"dc-monitor/pkg/protocol"
 )
@@ -22,7 +22,7 @@ func main() {
 		log.Fatalf("Erro: Variável de ambiente NODE_ID inválida ou não definida.")
 	}
 
-	serverAddr := os.Getenv("SERVER_IP")
+	serverAddr := os.Getenv("GATEWAY_IP")+":9000"
 	if serverAddr == "" {
 		// Fallback
 		serverAddr = "dc_server:9000"

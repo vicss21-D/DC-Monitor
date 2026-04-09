@@ -1,85 +1,85 @@
 version: '3.8'
 
 services:
-  # ==========================================
-  # SENSORES DE HARDWARE (Nós 1 a 8)
-  # ==========================================
+
+# CONJUNTO DE SENSORES
+
   sensor_1:
     build: { context: ., dockerfile: docker/node.Dockerfile }
     container_name: sensor_1
-    env_file: [ .env ]
-    environment: [ NODE_ID=1 ]
+    environment: 
+      - NODE_ID=1
+      - TARGET_IP=${GATEWAY_IP} 
 
   sensor_2:
     build: { context: ., dockerfile: docker/node.Dockerfile }
     container_name: sensor_2
-    env_file: [ .env ]
-    environment: [ NODE_ID=2 ]
+    environment: 
+      - NODE_ID=2
+      - TARGET_IP=${GATEWAY_IP}
 
   sensor_3:
     build: { context: ., dockerfile: docker/node.Dockerfile }
     container_name: sensor_3
-    env_file: [ .env ]
-    environment: [ NODE_ID=3 ]
+    environment: 
+      - NODE_ID=3
+      - TARGET_IP=${GATEWAY_IP}
 
   sensor_4:
     build: { context: ., dockerfile: docker/node.Dockerfile }
     container_name: sensor_4
-    env_file: [ .env ]
-    environment: [ NODE_ID=4 ]
+    environment: 
+      - NODE_ID=4
+      - TARGET_IP=${GATEWAY_IP}
 
   sensor_5:
     build: { context: ., dockerfile: docker/node.Dockerfile }
     container_name: sensor_5
-    env_file: [ .env ]
-    environment: [ NODE_ID=5 ]
+    environment: 
+      - NODE_ID=5
+      - TARGET_IP=${GATEWAY_IP}
 
   sensor_6:
-    build: { context: ., dockerfile: docker/node.Dockerfile }
+    build: { context: ., dockerfile: docker/node.Dockerfile } 
     container_name: sensor_6
-    env_file: [ .env ]
-    environment: [ NODE_ID=6 ]
+    environment:
+      - NODE_ID=6
+      - TARGET_IP=${GATEWAY_IP}
 
   sensor_7:
     build: { context: ., dockerfile: docker/node.Dockerfile }
     container_name: sensor_7
-    env_file: [ .env ]
-    environment: [ NODE_ID=7 ]
+    environment:
+      - NODE_ID=7
+      - TARGET_IP=${GATEWAY_IP}
 
   sensor_8:
     build: { context: ., dockerfile: docker/node.Dockerfile }
     container_name: sensor_8
-    env_file: [ .env ]
-    environment: [ NODE_ID=8 ]
+    environment:
+      - NODE_ID=8
+      - TARGET_IP=${GATEWAY_IP}
 
-  # ==========================================
-  # ATUADORES FÍSICOS
-  # ==========================================
+  # ATUADORES
   hvac_service:
-    build:
-      context: .
-      dockerfile: docker/hvac.Dockerfile
+    build: { context: ., dockerfile: docker/hvac.Dockerfile }
     container_name: hvac_actuator
-    env_file: [ .env ]
     ports:
-      - "8081:8081" # ABERTO: Para o Servidor
+      - "8081:8081" # Aberto para o Servidor Go chamar
 
   lb_service:
-    build:
-      context: .
-      dockerfile: docker/lb.Dockerfile
+    build: { context: ., dockerfile: docker/lb.Dockerfile }
     container_name: lb_actuator
-    env_file: [ .env ]
     ports:
-      - "8082:8082" # ABERTO: Para o Servidor
+      - "8082:8082" # Aberto para o Servidor Go chamar
 
-  # ==========================================
   # FRONT-END (Proxy Reverso)
-  # ==========================================
   web_client:
-    build:
-      context: .
-      dockerfile: docker/client.Dockerfile
+    build: { context: ., dockerfile: docker/client.Dockerfile }
     container_name: web_client
     ports:
       - "80:80" 
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    extra_hosts:
+      - "backend:${GATEWAY_IP}"

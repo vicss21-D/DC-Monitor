@@ -1,12 +1,17 @@
 version: '3.8'
+
 services:
-  server:
-    build:
-      context: .
-      dockerfile: docker/server.Dockerfile
-    container_name: dc_server
-    env_file:
-      - .env
+  backend:
+
+    build: 
+      context: .. 
+      dockerfile: server/Dockerfile # Ajuste caso seu dockerfile se chame diferente
+    container_name: dc_backend
+    restart: unless-stopped
     ports:
-      - "8080:8080"
-      - "9000:9000/udp" 
+      - "9000:9000/udp" # Recebe dos sensores
+      - "8080:8080/tcp" # Recebe do Nginx
+    environment:
+      # O Go já aponta nativamente para a Máquina B
+      - HVAC_SERVICE_URL=http://${ACTUATORS_IP}:8081/trigger
+      - LB_SERVICE_URL=http://${ACTUATORS_IP}:8082/trigger
