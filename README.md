@@ -135,6 +135,20 @@ Devido ao desacoplamento físico provido pelos arquivos `.env`, a implantação 
 * Máquinas físicas A (Servidor) e B (Borda) interconectadas via LAN/VLAN.
 * Docker Engine e Docker Compose instalados.
 
+Para começar a trabalhar ou realizar o deploy, você precisa de uma cópia local de todo o repositório. Utilize o **Git** para baixar os arquivos mantendo a integridade da estrutura de diretórios.
+
+### Clonando via Terminal
+Abra o terminal na pasta onde deseja salvar o projeto e execute:
+
+    git clone https://github.com/vicss21-D/DC-Monitor.git
+
+### Entrando na Pasta
+Após a conclusão, navegue para o diretório raiz:
+
+    cd nome-do-repositorio
+
+**Dica:** Se você estiver utilizando o **VS Code**, pode abrir o projeto instantaneamente digitando `code .` dentro da pasta. Certifique-se de que as pastas `edge-server` e `edge-nodes` estão visíveis na barra lateral para garantir que você está na raiz correta.
+
 ### Implantação na Máquina A (O Cérebro / Gateway)
 1. Transfira a pasta `edge-server/` para a máquina de alta capacidade computacional.
 2. Configure o `.env` interno apontando `ACTUATORS_IP` para o IP físico da Máquina B.
@@ -159,12 +173,13 @@ Devido ao desacoplamento físico provido pelos arquivos `.env`, a implantação 
         cd edge-server
         docker compose logs -f backend
 
-## Pontos de Atenção Críticos: Rede e Firewall
+## Pontos de Atenção Críticos:
 
 Por se tratar de uma arquitetura de *Edge Computing* fisicamente distribuída, a comunicação via rede local (LAN) é o coração do sistema. O tráfego falhará silenciosamente se as portas não estiverem estritamente liberadas.
 
 * **O Bloqueio Silencioso do UDP (Especialmente em Windows):** Sistemas operacionais, em particular o **Windows Defender Firewall**, bloqueiam pacotes UDP de entrada por padrão por questões de segurança. Como a Máquina Gateway (Máquina A) recebe milhares de pacotes por segundo via UDP na porta `9000`, **você deve criar uma Regra de Entrada (Inbound Rule) explícita no Firewall da Máquina A permitindo tráfego UDP na porta 9000**. Caso contrário, o servidor Go rodará perfeitamente, mas os pacotes da borda "baterão na parede" do SO host e nunca chegarão ao contêiner Docker.
 * **Liberação TCP:** Certifique-se também de que a porta `80` (HTTP) da Máquina B e a porta `8080` (API/WebSocket) da Máquina A estão permitidas no Firewall para garantir o acesso pelo painel Web.
+* **Docker ativo:** Certifique-se de que o Docker Engine está em execução.
 
 ---
 
