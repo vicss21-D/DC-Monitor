@@ -22,7 +22,7 @@ func main() {
 		log.Fatalf("Erro: Variável de ambiente NODE_ID inválida ou não definida.")
 	}
 
-	serverAddr := os.Getenv("GATEWAY_IP")+":9000"
+	serverAddr := os.Getenv("TARGET_IP")+":9000"
 	if serverAddr == "" {
 		// Fallback
 		serverAddr = "dc_server:9000"

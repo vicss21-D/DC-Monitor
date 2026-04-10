@@ -3,7 +3,7 @@ version: '3.8'
 services:
   backend:
     build: 
-      context: .. 
+      context: .
       dockerfile: docker/server.Dockerfile
     container_name: dc_backend
     restart: unless-stopped
