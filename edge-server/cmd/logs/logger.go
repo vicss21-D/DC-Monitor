@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	"dc-monitor/pkg/protocol"
+	"edge-server/pkg/protocol"
 )
 
 // CSVLoggerWorker escuta um canal de telemetria e registra cada pacote em um arquivo CSV

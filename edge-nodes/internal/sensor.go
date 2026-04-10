@@ -1,7 +1,7 @@
 package node
 
 import (
-	"dc-monitor/pkg/protocol"
+	"edge-nodes/pkg/protocol"
 	"math/rand"
 	"sync/atomic"
 )

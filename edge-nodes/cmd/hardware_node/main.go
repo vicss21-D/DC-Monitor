@@ -9,9 +9,9 @@ import (
 	"strconv"
 	"time"
 
-	"dc-monitor/internal"
-	"dc-monitor/internal/network"
-	"dc-monitor/pkg/protocol"
+	"edge-nodes/internal"
+	"edge-nodes/internal/network"
+	"edge-nodes/pkg/protocol"
 )
 
 func main() {

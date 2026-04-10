@@ -1,7 +1,7 @@
 package network
 
 import (
-	"dc-monitor/pkg/protocol"
+	"edge-nodes/pkg/protocol"
 	"encoding/json"
 	"fmt"
 	"net"
